@@ -29,6 +29,12 @@ class FeedbackInput(BaseModel):
     rating: int = Field(ge=-1, le=1)
     note: str = ''
 
+class GapAnswerInput(BaseModel):
+    product_id: str
+    version: str
+    question: str
+    answer: str
+
 @app.get('/')
 def home():
     return FileResponse(STATIC / 'index.html', headers={'Cache-Control': 'no-store'})
@@ -82,10 +88,18 @@ async def upload_document(product_id: str = Form(...), version: str = Form(...),
 def documents(product_id: Optional[str] = None):
     with core.connect() as db:
         if product_id:
-            rows = db.execute('SELECT d.*, count(c.id) chunks FROM documents d LEFT JOIN chunks c ON c.document_id=d.id WHERE d.product_id=? GROUP BY d.id ORDER BY d.created_at DESC', (product_id,))
+            rows = db.execute('SELECT d.*, count(c.id) chunks, (SELECT count(*) FROM faqs f WHERE f.document_id=d.id) faqs FROM documents d LEFT JOIN chunks c ON c.document_id=d.id WHERE d.product_id=? GROUP BY d.id ORDER BY d.created_at DESC', (product_id,))
         else:
-            rows = db.execute('SELECT d.*, count(c.id) chunks FROM documents d LEFT JOIN chunks c ON c.document_id=d.id GROUP BY d.id ORDER BY d.created_at DESC')
+            rows = db.execute('SELECT d.*, count(c.id) chunks, (SELECT count(*) FROM faqs f WHERE f.document_id=d.id) faqs FROM documents d LEFT JOIN chunks c ON c.document_id=d.id GROUP BY d.id ORDER BY d.created_at DESC')
         return [{**dict(r), 'cleaning_report': json.loads(r['cleaning_report'])} for r in rows]
+
+@app.get('/api/faqs')
+def faqs(product_id: str, version: str):
+    return core.list_faqs(product_id, version)
+
+@app.post('/api/faqs/train')
+def train_faqs():
+    return core.bootstrap_faqs()
 
 @app.delete('/api/documents/{document_id}')
 def delete_document(document_id: str):
@@ -109,6 +123,24 @@ def feedback(data: FeedbackInput):
                    (data.session_id, data.rating, data.note[:500], core.now()))
     return {'ok': True}
 
+@app.post('/api/gaps/{gap_id}/answer')
+def answer_gap(gap_id: int, data: GapAnswerInput):
+    try:
+        return core.supplement_gap(gap_id, data.product_id, data.version,
+                                   data.question, data.answer)
+    except KeyError as e:
+        raise HTTPException(404, e.args[0])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@app.post('/api/faqs/manual')
+def add_manual_faq(data: GapAnswerInput):
+    try:
+        return core.supplement_gap(None, data.product_id, data.version,
+                                   data.question, data.answer)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
 @app.get('/api/stats')
 def stats():
     with core.connect() as db:
@@ -117,10 +149,18 @@ def stats():
         return {'questions': total, 'answered': counts.get('answered', 0),
                 'handoffs': counts.get('handoff', 0),
                 'unanswered': counts.get('no_answer', 0) + counts.get('no_product', 0),
+                'auto_faqs': db.execute("SELECT count(*) FROM faqs WHERE kind IN ('auto','rule')").fetchone()[0],
+                'open_gap_count': db.execute('SELECT count(*) FROM unanswered WHERE resolved_at IS NULL').fetchone()[0],
                 'resolution_rate': round(counts.get('answered', 0) / total, 3) if total else 0,
                 'feedback_positive': db.execute('SELECT count(*) FROM feedback WHERE rating=1').fetchone()[0],
                 'feedback_negative': db.execute('SELECT count(*) FROM feedback WHERE rating=-1').fetchone()[0],
-                'top_unanswered': [dict(r) for r in db.execute('SELECT question,count(*) count FROM unanswered GROUP BY question ORDER BY count DESC LIMIT 10')]}
+                'top_unanswered': [dict(r) for r in db.execute('''
+                    SELECT min(u.id) id,u.question,u.product_id,u.version,
+                           coalesce(p.name,'未确认产品') product_name,count(*) count
+                    FROM unanswered u LEFT JOIN products p ON p.id=u.product_id
+                    WHERE u.resolved_at IS NULL
+                    GROUP BY u.question,u.product_id,u.version
+                    ORDER BY count DESC,id LIMIT 10''')]}
 
 @app.get('/api/handoffs')
 def handoffs():

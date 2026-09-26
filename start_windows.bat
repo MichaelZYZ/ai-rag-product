@@ -24,8 +24,7 @@ if errorlevel 1 goto :error
 ".venv\Scripts\python.exe" seed.py
 if errorlevel 1 goto :error
 
-echo Open http://127.0.0.1:8000 in your browser. Press Ctrl+C to stop.
-".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+".venv\Scripts\python.exe" run_server.py
 if errorlevel 1 goto :error
 exit /b 0
 

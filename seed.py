@@ -7,12 +7,8 @@ core.init_db()
 for item in json.loads((Path(__file__).parent / 'data' / 'demo_knowledge.json').read_text(encoding='utf-8')):
     core.add_product(item['product_id'], item['product_name'], item['aliases'])
     with core.connect() as db:
-        exists = db.execute('SELECT id,cleaning_report FROM documents WHERE product_id=? AND version=? AND source=?',
-                            (item['product_id'], item['version'], item['source'])).fetchone()
-        if exists and exists['cleaning_report'] == '{}':
-            db.execute('DELETE FROM documents WHERE id=?', (exists['id'],))
-            exists = None
-    if not exists:
-        result = core.add_document(item['product_id'], item['version'], item['category'],
-                                   item['title'], item['source'], item['text'].encode())
-        print(item['source'], result)
+        db.execute('DELETE FROM documents WHERE product_id=? AND version=? AND source=?',
+                   (item['product_id'], item['version'], item['source']))
+    result = core.add_document(item['product_id'], item['version'], item['category'],
+                               item['title'], item['source'], item['text'].encode())
+    print(item['source'], result)
