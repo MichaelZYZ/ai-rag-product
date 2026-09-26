@@ -75,6 +75,31 @@ class ManualFaqTrainingTests(unittest.TestCase):
         self.assertTrue(any(f['question'] == '云盒有哪些功能？' for f in faqs))
         self.assertEqual(core.bootstrap_faqs()['faqs_added'], 0)
 
+    def test_training_adds_focused_product_scripts_and_keeps_scope(self):
+        core.add_document('cloud_box', '1.0', '指南', '使用指南', 'guide.md',
+                          ('# 使用指南\n'
+                           '• 首次开机：长按电源键直到指示灯亮起，然后连接无线网络。\n'
+                           '• 无法充电：检查插座和电源线，仍无法充电请联系售后。').encode())
+        core.add_document('cloud_box', '2.0', '指南', '新版指南', 'v2.md',
+                          '• 首次开机：按两次电源键启动新版云盒。'.encode())
+        with TestClient(app) as client:
+            before = client.get('/api/faqs', params={'product_id': 'cloud_box', 'version': '1.0', 'limit': 500}).json()
+            self.assertFalse(any(f['kind'] == 'trained' for f in before))
+            result = client.post('/api/faqs/train', params={'product_id': 'cloud_box', 'version': '1.0'})
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(result.json()['documents_scanned'], 1)
+            self.assertGreaterEqual(result.json()['faqs_added'], 2)
+            trained = client.get('/api/faqs', params={'product_id': 'cloud_box', 'version': '1.0', 'limit': 500}).json()
+            self.assertTrue(any(f['question'] == '云盒如何首次开机？' and f['kind'] == 'trained' for f in trained))
+            self.assertTrue(any('无法充电' in f['question'] and '检查插座' in f['answer'] for f in trained))
+            self.assertFalse(any(f['kind'] == 'trained' for f in client.get('/api/faqs', params={
+                'product_id': 'cloud_box', 'version': '2.0', 'limit': 500}).json()))
+            self.assertEqual(client.post('/api/faqs/train', params={
+                'product_id': 'cloud_box', 'version': '1.0'}).json()['faqs_added'], 0)
+        answer = core.ask('云盒无法充电怎么办？', product_id='cloud_box', version='1.0')
+        self.assertEqual(answer['status'], 'answered')
+        self.assertIn('检查插座', answer['answer'])
+
 
 if __name__ == '__main__':
     unittest.main()

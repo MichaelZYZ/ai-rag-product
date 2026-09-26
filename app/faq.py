@@ -163,3 +163,55 @@ def extract_faqs(text: str, product_name: str):
             seen.add(key)
             unique.append(item)
     return unique
+
+
+def extract_training_faqs(text: str, product_name: str):
+    """Build focused customer questions from named facts and procedures.
+
+    Answers are copied verbatim from one source line. This complements the broad
+    section questions created at import time, so training has useful new work.
+    """
+    result, seen = [], set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or QUESTION.match(line) or ANSWER.match(line):
+            continue
+        body = re.sub(r'^[•●\-*]\s*', '', line).strip()
+        if len(body) < 12 or len(body) > 800 or body.endswith(('?', '？')):
+            continue
+        match = re.match(r'^([^：:]{2,24})[：:]\s*(.{8,})$', body)
+        if not match:
+            continue
+        topic, detail = match.group(1).strip(), match.group(2).strip()
+        if not topic or re.search(r'[。；，?？]', topic) or not detail:
+            continue
+        if any(word in topic for word in ('资料核对', '阅读提示', '产品线提示', '来源', '参考资料')):
+            continue
+        if any(word in topic for word in ('无法', '故障', '黑屏', '死机', '发热', '忘记', '异常')):
+            question, category = f'{product_name}{topic}怎么办？', '故障处理'
+        elif any(word in topic for word in ('价格', '售价', '费用')):
+            question, category = f'{product_name}{topic}是多少？', '价格'
+        elif any(word in topic for word in ('保修', '质保')):
+            question, category = f'{product_name}{topic}是多久？', '售后保修'
+        elif any(word in topic for word in ('参数', '容量', '限制', '上限', '尺寸', '规格')):
+            question, category = f'{product_name}{topic}是多少？', '参数限制'
+        elif '版本' in topic:
+            question, category = f'{product_name}的{topic}是什么？', '参数限制'
+        elif 'SIM' in topic.upper():
+            question, category = f'{product_name}如何安装或设置{topic}？', '操作步骤'
+        elif 'Face ID' in topic:
+            question, category = f'{product_name}如何设置{topic}？', '操作步骤'
+        elif any(word in topic for word in ('顶部', '底部', '左侧', '右侧', '背面', '屏幕')):
+            question, category = f'{product_name}的{topic}有什么？', '产品介绍'
+        elif any(word in topic for word in ('设置', '开机', '关机', '重启', '截图', '连接', '配对', '导出', '清洁', '充电', '操作', '使用')) or '→' in detail:
+            question, category = f'{product_name}如何{topic}？', '操作步骤'
+        elif any(word in topic for word in ('功能', '支持', '兼容', '接口')):
+            question, category = f'{product_name}的{topic}有哪些？', '功能介绍'
+        else:
+            question, category = f'{product_name}的{topic}有什么说明？', '功能介绍'
+        key = re.sub(r'\s+', '', question).lower()
+        if key not in seen:
+            seen.add(key)
+            result.append({'question': question, 'answer': detail,
+                           'category': category, 'kind': 'trained'})
+    return result

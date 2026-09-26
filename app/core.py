@@ -16,7 +16,7 @@ from xml.etree import ElementTree as ET
 import numpy as np
 from sklearn.feature_extraction.text import HashingVectorizer
 from .cleaning import clean_document
-from .faq import ANSWER, QUESTION, extract_faqs
+from .faq import ANSWER, QUESTION, extract_faqs, extract_training_faqs
 from .html_extract import extract_html_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +58,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS handoffs(id TEXT PRIMARY KEY, session_id TEXT NOT NULL, summary TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS feedback(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
-            rating INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+            message_id INTEGER, rating INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS unanswered(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
             question TEXT NOT NULL, product_id TEXT, version TEXT, created_at TEXT NOT NULL,
             resolved_at TEXT);
@@ -81,6 +81,10 @@ def init_db():
                 SELECT version FROM sessions WHERE sessions.id=unanswered.session_id)''')
         if 'resolved_at' not in unanswered_columns:
             db.execute('ALTER TABLE unanswered ADD COLUMN resolved_at TEXT')
+        feedback_columns = {row['name'] for row in db.execute('PRAGMA table_info(feedback)')}
+        if 'message_id' not in feedback_columns:
+            db.execute('ALTER TABLE feedback ADD COLUMN message_id INTEGER')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_message ON feedback(message_id)')
         db.execute('CREATE INDEX IF NOT EXISTS idx_unanswered_open ON unanswered(resolved_at,product_id,version)')
 
 
@@ -230,7 +234,7 @@ def reconstruct_chunk_text(db, document_id):
     return '\n'.join(lines)
 
 
-def bootstrap_faqs():
+def bootstrap_faqs(product_id=None, version=None):
     """On demand, fill missing source-backed FAQs without changing model weights."""
     added = scanned = 0
     with connect() as db:
@@ -238,7 +242,10 @@ def bootstrap_faqs():
                                          p.name product_name
                                   FROM documents d JOIN products p ON p.id=d.product_id
                                   WHERE d.source != '人工补充'
-                                  ORDER BY d.rowid''').fetchall()
+                                    AND (? IS NULL OR d.product_id=?)
+                                    AND (? IS NULL OR d.version=?)
+                                  ORDER BY d.rowid''',
+                               (product_id, product_id, version, version)).fetchall()
         for doc in documents:
             scanned += 1
             stored = db.execute('SELECT text FROM document_texts WHERE document_id=?',
@@ -248,7 +255,7 @@ def bootstrap_faqs():
                 continue
             source_lines = set(source_text.splitlines())
             proposals = []
-            for faq in extract_faqs(source_text, doc['product_name']):
+            for faq in extract_faqs(source_text, doc['product_name']) + extract_training_faqs(source_text, doc['product_name']):
                 key = faq_terms(faq['question'], doc['product_name'])
                 answer_lines = [line.strip() for line in faq['answer'].splitlines() if line.strip()]
                 # Every answer line must be copied from this document's text.
@@ -432,10 +439,11 @@ def faq_intent(question):
 
 
 def list_faqs(product_id, version, limit=12):
+    limit = max(1, min(int(limit), 500))
     with connect() as db:
         rows = db.execute('''SELECT question, answer, category, source, kind FROM faqs
                              WHERE product_id=? AND version=?
-                             ORDER BY CASE kind WHEN 'manual' THEN 0 WHEN 'explicit' THEN 1 WHEN 'auto' THEN 2 ELSE 3 END, rowid
+                             ORDER BY CASE kind WHEN 'manual' THEN 0 WHEN 'explicit' THEN 1 WHEN 'trained' THEN 2 WHEN 'auto' THEN 3 ELSE 4 END, rowid
                              LIMIT ?''', (product_id, version, limit)).fetchall()
     return [dict(row) for row in rows]
 
@@ -564,6 +572,28 @@ def handoff(db, session_id, question, product_id, version, reason):
     return ticket_id
 
 
+def conversational_answer(question, answer, status, product_name=None, version=None):
+    """Add conversational framing without changing the factual answer or source."""
+    if status == 'answered':
+        fact = answer.strip()
+        if fact.startswith('#') and '\n' in fact:
+            fact = fact.split('\n', 1)[1].strip()
+        fact = re.sub(r'^[•●]\s*', '', fact)
+        if any(word in question for word in ('怎么', '如何', '步骤', '怎样', '怎么办')):
+            return '可以按资料中的说明这样处理：\n' + fact
+        if any(word in question for word in ('最多', '多少', '上限', '限制', '大小', '容量')):
+            return '我查到的具体限制是：' + fact
+        if any(word in question for word in ('支持', '能否', '可以', '能不能')):
+            return '关于这个功能，资料说明：' + fact
+        return '我查到的说明是：' + fact
+    if status == 'no_answer':
+        scope = f'{product_name} {version}'.strip() if product_name else '当前产品'
+        return f'抱歉，我暂时没在{scope}的资料里找到这个问题的明确答案。你可以换个更具体的问法，或在知识库管理中补充资料。'
+    if status == 'handoff':
+        return '这件事需要人工确认，我已为你记录。' if '已为你生成转人工记录' in answer else answer
+    return answer
+
+
 def ask(question, session_id=None, product_id=None, version=None):
     start = time.monotonic()
     question = question.strip()
@@ -647,10 +677,32 @@ def ask(question, session_id=None, product_id=None, version=None):
         if status in ('no_answer', 'no_product'):
             db.execute('INSERT INTO unanswered(session_id,question,product_id,version,created_at) VALUES(?,?,?,?,?)',
                        (session_id, question, product_id, version, now()))
-        db.execute('INSERT INTO messages(session_id,role,text,status,created_at) VALUES(?,?,?,?,?)',
-                   (session_id, 'assistant', answer, status, now()))
+        message_id = db.execute('INSERT INTO messages(session_id,role,text,status,created_at) VALUES(?,?,?,?,?)',
+                                (session_id, 'assistant', answer, status, now())).lastrowid
+        product_name_row = db.execute('SELECT name FROM products WHERE id=?', (product_id,)).fetchone() if product_id else None
+        display_answer = conversational_answer(question, answer, status,
+                                               product_name_row['name'] if product_name_row else None, version)
+        suggested_questions = []
+        if status == 'answered' and product_name_row:
+            current_key = faq_terms(question, product_name_row['name'])
+            current_category = faq['source']['category'] if faq else None
+            candidates = db.execute('''SELECT question,answer,category FROM faqs
+                                       WHERE product_id=? AND version=? ORDER BY rowid LIMIT 80''',
+                                    (product_id, version)).fetchall()
+            candidates = sorted(candidates, key=lambda row: row['category'] != current_category)
+            seen_answers = {answer.strip()}
+            for candidate in candidates:
+                if (faq_terms(candidate['question'], product_name_row['name']) == current_key
+                        or candidate['answer'].strip() in seen_answers):
+                    continue
+                suggested_questions.append(candidate['question'])
+                seen_answers.add(candidate['answer'].strip())
+                if len(suggested_questions) == 2:
+                    break
     return {'session_id': session_id, 'product_id': product_id, 'version': version,
-            'rewritten_question': rewritten, 'answer': answer, 'status': status,
+            'message_id': message_id,
+            'rewritten_question': rewritten, 'answer': answer, 'display_answer': display_answer,
+            'suggested_questions': suggested_questions, 'status': status,
             'confidence': round(top, 4), 'sources': sources[:3] if status == 'answered' else [],
             'matched_products': matched_products, 'handoff_id': ticket_id,
             'latency_ms': round((time.monotonic()-start)*1000)}

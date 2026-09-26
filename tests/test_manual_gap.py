@@ -69,8 +69,8 @@ class ManualGapTests(unittest.TestCase):
     def test_homepage_always_shows_manual_entry(self):
         page = self.client.get('/')
         self.assertEqual(page.status_code, 200)
-        self.assertIn('+ 补充知识缺口', page.text)
         self.assertIn('+ 手动补充问答', page.text)
+        self.assertIn('补充问答与知识缺口', page.text)
         self.assertEqual(page.headers['cache-control'], 'no-store')
 
 

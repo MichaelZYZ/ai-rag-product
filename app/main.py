@@ -26,7 +26,8 @@ class AskInput(BaseModel):
 
 class FeedbackInput(BaseModel):
     session_id: str
-    rating: int = Field(ge=-1, le=1)
+    message_id: int = Field(gt=0)
+    rating: int
     note: str = ''
 
 class GapAnswerInput(BaseModel):
@@ -94,12 +95,12 @@ def documents(product_id: Optional[str] = None):
         return [{**dict(r), 'cleaning_report': json.loads(r['cleaning_report'])} for r in rows]
 
 @app.get('/api/faqs')
-def faqs(product_id: str, version: str):
-    return core.list_faqs(product_id, version)
+def faqs(product_id: str, version: str, limit: int = 12):
+    return core.list_faqs(product_id, version, limit)
 
 @app.post('/api/faqs/train')
-def train_faqs():
-    return core.bootstrap_faqs()
+def train_faqs(product_id: Optional[str] = None, version: Optional[str] = None):
+    return core.bootstrap_faqs(product_id, version)
 
 @app.delete('/api/documents/{document_id}')
 def delete_document(document_id: str):
@@ -118,10 +119,18 @@ def ask(data: AskInput):
 
 @app.post('/api/feedback')
 def feedback(data: FeedbackInput):
+    if data.rating not in (-1, 1):
+        raise HTTPException(400, '请选择有帮助或没帮助')
     with core.connect() as db:
-        db.execute('INSERT INTO feedback(session_id,rating,note,created_at) VALUES(?,?,?,?)',
-                   (data.session_id, data.rating, data.note[:500], core.now()))
-    return {'ok': True}
+        message = db.execute('SELECT id FROM messages WHERE id=? AND session_id=? AND role=? AND status=?',
+                             (data.message_id, data.session_id, 'assistant', 'answered')).fetchone()
+        if not message:
+            raise HTTPException(404, '对应回答不存在或不可评价')
+        db.execute('''INSERT INTO feedback(session_id,message_id,rating,note,created_at)
+                      VALUES(?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET
+                      rating=excluded.rating,note=excluded.note,created_at=excluded.created_at''',
+                   (data.session_id, data.message_id, data.rating, data.note[:500], core.now()))
+    return {'ok': True, 'message_id': data.message_id, 'rating': data.rating}
 
 @app.post('/api/gaps/{gap_id}/answer')
 def answer_gap(gap_id: int, data: GapAnswerInput):
@@ -149,7 +158,7 @@ def stats():
         return {'questions': total, 'answered': counts.get('answered', 0),
                 'handoffs': counts.get('handoff', 0),
                 'unanswered': counts.get('no_answer', 0) + counts.get('no_product', 0),
-                'auto_faqs': db.execute("SELECT count(*) FROM faqs WHERE kind IN ('auto','rule')").fetchone()[0],
+                'auto_faqs': db.execute("SELECT count(*) FROM faqs WHERE kind IN ('auto','rule','trained')").fetchone()[0],
                 'open_gap_count': db.execute('SELECT count(*) FROM unanswered WHERE resolved_at IS NULL').fetchone()[0],
                 'resolution_rate': round(counts.get('answered', 0) / total, 3) if total else 0,
                 'feedback_positive': db.execute('SELECT count(*) FROM feedback WHERE rating=1').fetchone()[0],
