@@ -36,6 +36,9 @@ class GapAnswerInput(BaseModel):
     question: str
     answer: str
 
+class PromptInput(BaseModel):
+    prompt: str
+
 @app.get('/')
 def home():
     return FileResponse(STATIC / 'index.html', headers={'Cache-Control': 'no-store'})
@@ -149,6 +152,21 @@ def add_manual_faq(data: GapAnswerInput):
                                    data.question, data.answer)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+@app.get('/api/prompt')
+def get_prompt():
+    return core.answer_prompt_config()
+
+@app.put('/api/prompt')
+def update_prompt(data: PromptInput):
+    try:
+        return core.save_answer_prompt(data.prompt)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@app.delete('/api/prompt')
+def reset_prompt():
+    return core.reset_answer_prompt()
 
 @app.get('/api/stats')
 def stats():

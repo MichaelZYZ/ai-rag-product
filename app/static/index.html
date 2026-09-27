@@ -25,6 +25,7 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 .trained-list{max-height:360px;overflow:auto;padding-left:0;list-style:none}.trained-list li{padding:9px 0;border-bottom:1px solid #e4ebf2}.trained-list strong,.trained-list span{display:block;overflow-wrap:anywhere}.trained-list span{white-space:pre-wrap;color:#50637a}.trained-list small{color:#6c7e90}
 .feedback-controls{max-width:90%;margin:0 0 12px}.feedback-controls .row button{padding:6px 10px;font-size:12px}.feedback-controls .hint{margin:5px 0}.feedback-controls button:disabled{opacity:.65;cursor:default}
 .followups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:9px}.followups span{font-size:12px;color:#66788b}.followups button{padding:5px 8px;background:#e1edf7;color:#155682;font-size:12px}.followups button:hover{background:#cce2f4}
+.prompt-editor{min-height:240px;line-height:1.55;font-size:13px}.prompt-actions{display:flex;gap:8px;margin-top:9px}.prompt-actions button{flex:1;font-size:13px;padding:9px 8px}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.chat{min-height:570px}.messages{max-height:430px}.sidebar{margin-bottom:20px}}
 @media(max-width:520px){.scope-fields{grid-template-columns:minmax(0,1fr) 112px}.composer-actions .secondary{padding:9px 7px}}
 </style>
@@ -58,6 +59,12 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 <p id="trainMsg" class="hint" aria-live="polite">按需整理已有资料，只补充有原文依据的问答。</p>
 <p id="trainedScope" class="hint"></p><ul id="trainedFaqs" class="trained-list"></ul>
 </details>
+<details id="promptDetails"><summary>模型 Prompt 配置</summary>
+<p class="hint">用于模型根据检索片段生成回答。FAQ 直接返回已存答案，不经过模型。</p>
+<label for="promptBody">系统提示词</label><textarea id="promptBody" class="prompt-editor" maxlength="10000" spellcheck="false" placeholder="正在加载默认 Prompt…"></textarea>
+<div class="prompt-actions"><button id="savePrompt" type="button">保存配置</button><button id="resetPrompt" type="button" class="secondary">恢复默认</button></div>
+<p id="promptStatus" class="hint" aria-live="polite"></p>
+</details>
 <details id="gapsDetails"><summary>补充问答与知识缺口 <span id="gapCount"></span></summary>
 <button id="manualFaqButton" type="button" style="width:100%;margin:12px 0 8px">+ 手动补充问答</button>
 <ul id="unanswered"></ul>
@@ -79,7 +86,7 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 </form>
 </dialog>
 <script>
-const $=id=>document.getElementById(id); let sessionId=null,currentGapId=null,citationCounter=0;
+const $=id=>document.getElementById(id); let sessionId=null,currentGapId=null,citationCounter=0,promptLoaded=false;
 async function api(path,opts={}){const r=await fetch(path,opts);const d=await r.json();if(!r.ok)throw Error(d.detail||'请求失败');return d}
 function node(tag,text,cls){const x=document.createElement(tag);x.textContent=text;if(cls)x.className=cls;return x}
 function scoreLabel(value){const n=Number(value);return Number.isFinite(n)?Math.round(n*100)+'%':'—'}
@@ -227,6 +234,30 @@ $('trainFaqs').onclick=async()=>{
     await refresh();await loadTrainedFaqs();await docs();
     if($('product').value&&$('version').value)await loadFaqSuggestions();
   }catch(error){$('trainMsg').textContent='整理失败：'+error.message}
+  finally{button.disabled=false}
+};
+function showPromptConfig(config,message=''){
+  $('promptBody').value=config.prompt;
+  const source=config.source==='custom'?'自定义配置':'默认配置';
+  const model=config.model_enabled?'模型已配置，新回答将使用此 Prompt。':'尚未配置模型；保存后会在接入模型时生效。';
+  $('promptStatus').className='hint';$('promptStatus').textContent=(message?message+' ':'')+source+'。'+model;
+  promptLoaded=true;
+}
+async function loadPrompt(){
+  try{showPromptConfig(await api('/api/prompt'))}
+  catch(error){$('promptStatus').className='error';$('promptStatus').textContent='加载 Prompt 失败：'+error.message}
+}
+$('promptDetails').addEventListener('toggle',()=>{if($('promptDetails').open&&!promptLoaded)loadPrompt()});
+$('savePrompt').onclick=async()=>{
+  const button=$('savePrompt');button.disabled=true;$('promptStatus').textContent='正在保存 Prompt…';
+  try{const config=await api('/api/prompt',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('promptBody').value})});showPromptConfig(config,'已保存。')}
+  catch(error){$('promptStatus').className='error';$('promptStatus').textContent='保存失败：'+error.message}
+  finally{button.disabled=false}
+};
+$('resetPrompt').onclick=async()=>{
+  const button=$('resetPrompt');button.disabled=true;$('promptStatus').textContent='正在恢复默认 Prompt…';
+  try{showPromptConfig(await api('/api/prompt',{method:'DELETE'}),'已恢复默认。')}
+  catch(error){$('promptStatus').className='error';$('promptStatus').textContent='恢复失败：'+error.message}
   finally{button.disabled=false}
 };
 $('gapProduct').onchange=()=>{const raw=$('gapProduct').selectedOptions[0]?.dataset.versions;const versions=raw?JSON.parse(raw):[];$('gapVersion').value=versions[0]||'1.0'};

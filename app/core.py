@@ -62,6 +62,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS unanswered(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
             question TEXT NOT NULL, product_id TEXT, version TEXT, created_at TEXT NOT NULL,
             resolved_at TEXT);
+        CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_chunks_scope ON chunks(product_id, version);
         CREATE INDEX IF NOT EXISTS idx_faqs_scope ON faqs(product_id, version);
         ''')
@@ -90,6 +91,37 @@ def init_db():
 
 def now():
     return time.strftime('%Y-%m-%d %H:%M:%S')
+
+
+def default_answer_prompt():
+    return (ROOT / 'prompts' / 'answer.txt').read_text(encoding='utf-8')
+
+
+def answer_prompt_config():
+    default = default_answer_prompt()
+    with connect() as db:
+        row = db.execute("SELECT value FROM settings WHERE key='answer_prompt'").fetchone()
+    return {'prompt': row['value'] if row else default,
+            'default_prompt': default,
+            'source': 'custom' if row else 'default',
+            'model_enabled': all(os.getenv(name) for name in
+                                 ('LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'))}
+
+
+def save_answer_prompt(prompt):
+    prompt = prompt.strip()
+    if not 10 <= len(prompt) <= 10000:
+        raise ValueError('Prompt 长度需为 10–10000 字')
+    with connect() as db:
+        db.execute("""INSERT INTO settings(key,value) VALUES('answer_prompt',?)
+                      ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (prompt,))
+    return answer_prompt_config()
+
+
+def reset_answer_prompt():
+    with connect() as db:
+        db.execute("DELETE FROM settings WHERE key='answer_prompt'")
+    return answer_prompt_config()
 
 
 def add_product(product_id, name, aliases=None):
@@ -549,7 +581,7 @@ def llm_answer(question, sources):
     model = os.getenv('LLM_MODEL', '')
     if not (endpoint and key and model):
         return None
-    prompt = (ROOT / 'prompts' / 'answer.txt').read_text(encoding='utf-8')
+    prompt = answer_prompt_config()['prompt']
     context = '\n\n'.join(f"[{i+1}] {s['text']}" for i, s in enumerate(sources))
     payload = json.dumps({'model': model, 'temperature': 0, 'messages': [
         {'role': 'system', 'content': prompt},

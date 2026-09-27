@@ -4,6 +4,7 @@ import errno
 import socket
 
 import uvicorn
+from app import core
 
 
 def available_port(start=8000, stop=8010):
@@ -24,4 +25,5 @@ if __name__ == '__main__':
     if port != 8000:
         print(f'端口 8000 已被占用，旧页面可能仍在运行。请打开下面的新地址：', flush=True)
     print(f'\n产品知识问答演示：http://127.0.0.1:{port}/\n', flush=True)
+    print(f'当前数据库：{core.DB_PATH.resolve()}\n', flush=True)
     uvicorn.run('app.main:app', host='127.0.0.1', port=port)

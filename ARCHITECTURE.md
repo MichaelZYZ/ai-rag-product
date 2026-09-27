@@ -27,10 +27,10 @@ flowchart LR
 | `app/html_extract.py` | 从 HTML 提取可见文字，保留标题和块级分隔，过滤脚本、样式等页面内容。 |
 | `app/cleaning.py` | 规范化字符和空白、过滤页码与重复行，并生成清洗报告。 |
 | `app/faq.py` | 提取原文中的显式问答；从明确事实、章节和带主题的条目生成来源可核对的问答。 |
-| `prompts/answer.txt` | 可选 LLM 在片段回答路径使用的系统提示词。 |
+| `prompts/answer.txt` | 可选 LLM 在片段回答路径使用的默认系统提示词；页面可保存自定义覆盖内容。 |
 | `seed.py`、`data/demo_knowledge.json` | 导入虚构演示产品和资料。 |
 | `evaluate.py`、`data/eval_cases.json`、`tests/` | 可复现评估样例及自动化测试。 |
-| `run_server.py`、`start_mac.command`、`start_windows.bat` | 本地启动入口。 |
+| `run_server.py`、`start_mac.command`、`start_windows.bat`、`bootstrap_windows.ps1` | 本地启动入口；macOS 和 Windows 脚本检查并补齐 Python、虚拟环境和依赖。 |
 
 ## 3. 资料导入流程
 
@@ -82,6 +82,8 @@ flowchart TD
 
 命中 FAQ 时将保存的答案作为事实答案返回。未命中 FAQ 但片段足够相关时，若设置了 `LLM_BASE_URL`、`LLM_API_KEY` 和 `LLM_MODEL`，后端会把命中片段交给兼容 Chat Completions 的服务；未设置或调用失败时返回命中片段原文。API 的 `answer` 保留事实答案，聊天界面展示的 `display_answer` 仅增加口语化引导，不改变事实内容；`suggested_questions` 从同产品、同版本的 FAQ 中选择最多两个后续问题。回答还附带来源、相关度、状态、会话 ID 和消息 ID。退款、投诉等关键词触发转人工；资料不足的问题进入 `unanswered`，供人工补充。
 
+模型 Prompt 可以在右侧管理区编辑。自定义内容保存在 `settings`，新模型请求会立即使用它；删除自定义配置后恢复读取 `prompts/answer.txt`。页面会显示模型环境变量是否已配置。这个 Prompt 只参与上述模型调用，FAQ 答案和无模型时的固定话术不会受其影响。
+
 ## 6. 数据模型
 
 | 表 | 主要内容 | 关系或用途 |
@@ -96,6 +98,7 @@ flowchart TD
 | `unanswered` | 无答案问题、产品、版本、解决时间 | 知识缺口列表。 |
 | `handoffs` | 转人工摘要和状态 | 敏感业务或冲突答案的记录。 |
 | `feedback` | 对具体助手消息的正负评价 | 同一消息只保留一条当前评价。 |
+| `settings` | 当前自定义模型 Prompt | 无自定义值时读取 `prompts/answer.txt`。 |
 
 `chunks` 和 `faqs` 都有 `(product_id, version)` 索引。问答类型主要有文档显式问答、规则或章节问答、按需整理问答以及人工问答。数据库初始化时会为旧库补充新增字段。
 
@@ -110,12 +113,13 @@ flowchart TD
 | `POST /api/ask` | 提问并返回答案、状态与来源。 |
 | `POST /api/gaps/{id}/answer` | 为知识缺口补充答案。 |
 | `POST /api/feedback` | 对指定回答提交“有帮助 / 没帮助”评价。 |
+| `GET /api/prompt`、`PUT /api/prompt`、`DELETE /api/prompt` | 查看、保存和恢复默认模型 Prompt。 |
 | `GET /api/stats`、`GET /api/handoffs` | 查看统计、知识缺口和转人工记录。 |
 
 FastAPI 自动接口文档位于 `/docs`。
 
 ## 8. 运行与边界
 
-本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口。示例资料由 `seed.py` 导入。
+本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：检查 Python，必要时通过 `winget` 安装 Python 3.11，创建或修复 `.venv`，安装并校验依赖。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。SQLite 文件被 Git 忽略，跨机器迁移需另行复制该文件，详见 README。
 
 当前实现面向课堂演示：没有管理员鉴权、权限隔离、限流或正式工单系统；SQLite 和内存中逐条比较向量适合小规模资料；字符 n-gram 并非语义 Embedding。可选 LLM 只用于片段回答，现有代码没有逐句忠实度校验。上线前需要补充权限和审核、检索质量评估、文档 OCR、冲突治理及运行监控。
