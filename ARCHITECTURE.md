@@ -21,7 +21,7 @@ flowchart LR
 
 | 位置 | 职责 |
 | --- | --- |
-| `app/static/index.html` | 产品与版本选择、聊天、资料导入、话术整理、知识缺口和统计界面；通过 `fetch` 调用 API。 |
+| `app/static/index.html` | 产品与版本选择、聊天、资料导入、话术整理、知识缺口、统计与效果评估界面；通过 `fetch` 调用 API。 |
 | `app/main.py` | FastAPI 路由、请求字段校验、异常到 HTTP 状态码的转换、统计查询。 |
 | `app/core.py` | 数据库初始化、资料入库、向量检索、FAQ 匹配、会话编排、转人工、人工补充和可选 LLM 调用。 |
 | `app/html_extract.py` | 从 HTML 提取可见文字，保留标题和块级分隔，过滤脚本、样式等页面内容。 |
@@ -29,7 +29,7 @@ flowchart LR
 | `app/faq.py` | 提取原文中的显式问答；从明确事实、章节和带主题的条目生成来源可核对的问答。 |
 | `prompts/answer.txt` | 可选 LLM 在片段回答路径使用的默认系统提示词；页面可保存自定义覆盖内容。 |
 | `seed.py`、`data/demo_knowledge.json` | 导入虚构演示产品和资料。 |
-| `evaluate.py`、`data/eval_cases.json`、`tests/` | 可复现评估样例及自动化测试。 |
+| `evaluate.py`、`app/evaluation_worker.py`、`data/eval_cases.json`、`tests/` | 可复现评估样例；网页评估在当前数据库副本上运行固定样例，避免污染正式记录。 |
 | `run_server.py`、`start_mac.command`、`start_windows.bat`、`bootstrap_windows.ps1` | 本地启动入口；macOS 和 Windows 脚本检查并补齐 Python、虚拟环境和依赖。 |
 
 ## 3. 资料导入流程
@@ -99,6 +99,7 @@ flowchart TD
 | `handoffs` | 转人工摘要和状态 | 敏感业务或冲突答案的记录。 |
 | `feedback` | 对具体助手消息的正负评价 | 同一消息只保留一条当前评价。 |
 | `settings` | 当前自定义模型 Prompt | 无自定义值时读取 `prompts/answer.txt`。 |
+| `training_runs` | 每次按需整理的时间、范围、扫描资料数、新增问答数和整理后问答总数 | 绘制问答整理曲线；不代表模型参数训练。 |
 
 `chunks` 和 `faqs` 都有 `(product_id, version)` 索引。问答类型主要有文档显式问答、规则或章节问答、按需整理问答以及人工问答。数据库初始化时会为旧库补充新增字段。
 
@@ -115,11 +116,12 @@ flowchart TD
 | `POST /api/feedback` | 对指定回答提交“有帮助 / 没帮助”评价。 |
 | `GET /api/prompt`、`PUT /api/prompt`、`DELETE /api/prompt` | 查看、保存和恢复默认模型 Prompt。 |
 | `GET /api/stats`、`GET /api/handoffs` | 查看统计、知识缺口和转人工记录。 |
+| `GET /api/evaluation` | 在当前 SQLite 数据库副本上运行固定样例，返回问答整理历史、混淆矩阵、检索命中率@k 和案例对比，不写入正式咨询记录。 |
 
 FastAPI 自动接口文档位于 `/docs`。
 
 ## 8. 运行与边界
 
-本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：检查 Python，必要时通过 `winget` 安装 Python 3.11，创建或修复 `.venv`，安装并校验依赖。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。SQLite 文件被 Git 忽略，跨机器迁移需另行复制该文件，详见 README。
+本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：优先复用可用的 `.venv`，否则枚举已安装的 Python 3.9+ 并逐个尝试虚拟环境和依赖安装；都不可用时通过 `winget` 安装 Python 3.11。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。SQLite 文件被 Git 忽略，跨机器迁移需另行复制该文件，详见 README。
 
 当前实现面向课堂演示：没有管理员鉴权、权限隔离、限流或正式工单系统；SQLite 和内存中逐条比较向量适合小规模资料；字符 n-gram 并非语义 Embedding。可选 LLM 只用于片段回答，现有代码没有逐句忠实度校验。上线前需要补充权限和审核、检索质量评估、文档 OCR、冲突治理及运行监控。

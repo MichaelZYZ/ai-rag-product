@@ -63,6 +63,10 @@ def init_db():
             question TEXT NOT NULL, product_id TEXT, version TEXT, created_at TEXT NOT NULL,
             resolved_at TEXT);
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS training_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL, product_id TEXT, version TEXT,
+            documents_scanned INTEGER NOT NULL, faqs_added INTEGER NOT NULL,
+            total_faqs INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_chunks_scope ON chunks(product_id, version);
         CREATE INDEX IF NOT EXISTS idx_faqs_scope ON faqs(product_id, version);
         ''')
@@ -268,7 +272,7 @@ def reconstruct_chunk_text(db, document_id):
 
 def bootstrap_faqs(product_id=None, version=None):
     """On demand, fill missing source-backed FAQs without changing model weights."""
-    added = scanned = 0
+    added = scanned = already_present = source_rejected = empty_documents = 0
     with connect() as db:
         documents = db.execute('''SELECT d.id,d.product_id,d.version,d.category,d.source,
                                          p.name product_name
@@ -284,6 +288,7 @@ def bootstrap_faqs(product_id=None, version=None):
                                 (doc['id'],)).fetchone()
             source_text = (stored['text'] if stored else '') or reconstruct_chunk_text(db, doc['id'])
             if not source_text.strip():
+                empty_documents += 1
                 continue
             source_lines = set(source_text.splitlines())
             proposals = []
@@ -293,6 +298,7 @@ def bootstrap_faqs(product_id=None, version=None):
                 # Every answer line must be copied from this document's text.
                 if not key or not answer_lines or any(
                         line not in source_lines and line not in source_text for line in answer_lines):
+                    source_rejected += 1
                     continue
                 proposals.append((key, faq))
             if not proposals:
@@ -306,9 +312,11 @@ def bootstrap_faqs(product_id=None, version=None):
                 'SELECT question FROM faqs WHERE document_id=?', (doc['id'],))}
             candidates = []
             for key, faq in proposals:
-                if key not in existing:
-                    existing.add(key)
-                    candidates.append((key, faq))
+                if key in existing:
+                    already_present += 1
+                    continue
+                existing.add(key)
+                candidates.append((key, faq))
             for start in range(0, len(candidates), 64):
                 batch = candidates[start:start + 64]
                 vectors = VECTORIZER.transform([key for key, _ in batch]).astype(np.float32).toarray()
@@ -319,7 +327,17 @@ def bootstrap_faqs(product_id=None, version=None):
                     for (_, faq), vector in zip(batch, vectors)])
             db.commit()
             added += len(candidates)
-    return {'documents_scanned': scanned, 'faqs_added': added}
+        total_faqs = db.execute('''SELECT count(*) FROM faqs
+                                  WHERE (? IS NULL OR product_id=?)
+                                    AND (? IS NULL OR version=?)''',
+                                (product_id, product_id, version, version)).fetchone()[0]
+        db.execute('''INSERT INTO training_runs
+                      (created_at,product_id,version,documents_scanned,faqs_added,total_faqs)
+                      VALUES(?,?,?,?,?,?)''',
+                   (now(), product_id, version, scanned, added, total_faqs))
+    return {'documents_scanned': scanned, 'faqs_added': added,
+            'already_present': already_present, 'source_rejected': source_rejected,
+            'empty_documents': empty_documents, 'faqs_total': total_faqs}
 
 
 def product_catalog(limit=None):

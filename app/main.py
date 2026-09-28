@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -193,3 +198,28 @@ def stats():
 def handoffs():
     with core.connect() as db:
         return [dict(r) for r in db.execute('SELECT * FROM handoffs ORDER BY created_at DESC LIMIT 50')]
+
+
+@app.get('/api/evaluation')
+def evaluation():
+    """Run fixed evaluation cases against a read-only snapshot of current knowledge."""
+    with core.connect() as db:
+        history = [dict(row) for row in db.execute('''
+            SELECT id,created_at,product_id,version,documents_scanned,faqs_added,total_faqs
+            FROM training_runs ORDER BY id''')]
+        with tempfile.TemporaryDirectory(prefix='rag-evaluation-') as temp:
+            snapshot = Path(temp) / 'snapshot.sqlite3'
+            with sqlite3.connect(snapshot) as target:
+                db.backup(target)
+            environment = os.environ.copy()
+            environment['RAG_DB'] = str(snapshot)
+            for key in ('LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'):
+                environment.pop(key, None)
+            try:
+                process = subprocess.run(
+                    [sys.executable, '-m', 'app.evaluation_worker'], cwd=core.ROOT,
+                    env=environment, capture_output=True, text=True, timeout=45, check=True)
+                result = json.loads(process.stdout)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as error:
+                raise HTTPException(500, '评估运行失败，请检查服务日志') from error
+    return {'training_history': history, **result}

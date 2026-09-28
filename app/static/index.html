@@ -26,8 +26,10 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 .feedback-controls{max-width:90%;margin:0 0 12px}.feedback-controls .row button{padding:6px 10px;font-size:12px}.feedback-controls .hint{margin:5px 0}.feedback-controls button:disabled{opacity:.65;cursor:default}
 .followups{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:9px}.followups span{font-size:12px;color:#66788b}.followups button{padding:5px 8px;background:#e1edf7;color:#155682;font-size:12px}.followups button:hover{background:#cce2f4}
 .prompt-editor{min-height:240px;line-height:1.55;font-size:13px}.prompt-actions{display:flex;gap:8px;margin-top:9px}.prompt-actions button{flex:1;font-size:13px;padding:9px 8px}
+.evaluation-entry{width:100%;margin:4px 0 12px}.evaluation{max-width:1160px;margin:0 auto 24px}.evaluation[hidden]{display:none}.evaluation-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.evaluation-head h2{margin:0}.evaluation-head button{width:auto}.eval-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:14px}.eval-card{border:1px solid #dce4ef;border-radius:12px;padding:15px;min-width:0}.eval-card h3{font-size:15px;margin:0 0 12px}.eval-card p{margin:10px 0 0}.eval-card svg{display:block;width:100%;height:auto}.eval-chart-empty{padding:26px 10px;background:#f3f7fb;border-radius:8px;color:#66788b;text-align:center}.eval-bars{display:grid;gap:9px}.eval-bar-row{display:grid;grid-template-columns:48px 1fr 48px;gap:8px;align-items:center;font-size:12px}.eval-bar-row .bar{margin:0}.eval-table-wrap{overflow-x:auto}.eval-table{border-collapse:collapse;width:100%;font-size:12px}.eval-table th,.eval-table td{border:1px solid #dce4ef;padding:7px;text-align:left;vertical-align:top}.eval-table th{background:#f3f7fb}.eval-table .diag{background:#dcefe4;font-weight:700}.eval-case{border-top:1px solid #e4ebf2;padding:9px 0}.eval-case:first-child{border-top:0}.eval-case summary{font-size:13px}.eval-case pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:12px;margin:8px 0 0}.eval-pass{color:#226943}.eval-fail{color:#a12b2b}
+dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);margin:auto;padding:20px;border:1px solid #cad9e8;border-radius:14px;box-shadow:0 20px 55px #102b4455;overflow:auto}dialog.evaluation:not([open]){display:none}dialog.evaluation::backdrop{background:#10263d99}.eval-grid[hidden]{display:none}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.chat{min-height:570px}.messages{max-height:430px}.sidebar{margin-bottom:20px}}
-@media(max-width:520px){.scope-fields{grid-template-columns:minmax(0,1fr) 112px}.composer-actions .secondary{padding:9px 7px}}
+@media(max-width:820px){.evaluation{margin:0 18px 24px}}@media(max-width:650px){.eval-grid{grid-template-columns:1fr}}@media(max-width:520px){.scope-fields{grid-template-columns:minmax(0,1fr) 112px}.composer-actions .secondary{padding:9px 7px}}
 </style>
 </head>
 <body>
@@ -45,6 +47,7 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 </div>
 </section>
 <aside class="card sidebar"><h2>知识库管理</h2><p class="hint section-note">需要时展开下面的工具。</p>
+<button id="openEvaluation" type="button" class="secondary evaluation-entry">查看效果评估</button>
 <details id="knowledgeDetails"><summary>导入资料与产品</summary>
 <label>产品 ID</label><input id="newId" placeholder="例如 demo_product">
 <label>产品名称</label><input id="newName" placeholder="例如 演示产品">
@@ -74,6 +77,16 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 <details id="handoffsDetails"><summary>转人工记录</summary><ul id="handoffs"></ul></details>
 </aside>
 </main>
+<dialog id="evaluationPanel" class="evaluation" aria-labelledby="evaluationTitle">
+<div class="evaluation-head"><h2 id="evaluationTitle">效果评估</h2><button id="closeEvaluation" type="button" class="secondary">关闭</button></div>
+<p id="evaluationStatus" class="hint" aria-live="polite">使用 data/eval_cases.json 中的 8 个虚构产品样例，在当前知识库副本上运行；不写入正式咨询记录。</p>
+<div id="evaluationContent" class="eval-grid" hidden>
+<section class="eval-card"><h3>训练曲线：问答整理记录</h3><div id="trainingChart"></div><p id="trainingInterpretation" class="hint"></p></section>
+<section class="eval-card"><h3>混淆矩阵：回答状态</h3><div id="confusionChart"></div><p id="confusionInterpretation" class="hint"></p></section>
+<section class="eval-card"><h3>检索命中率@k</h3><div id="retrievalChart"></div><p id="retrievalInterpretation" class="hint"></p></section>
+<section class="eval-card"><h3>案例对比</h3><div id="comparisonChart"></div><p id="comparisonInterpretation" class="hint"></p></section>
+</div>
+</dialog>
 <dialog id="gapDialog" class="gap-dialog">
 <form id="gapForm">
 <h2 id="gapDialogTitle">手动补充问答</h2><p class="hint">核对产品和版本后，以问答格式保存。答案将作为人工补充资料用于后续问答。</p>
@@ -198,6 +211,68 @@ async function refresh(){
   $('chart').replaceChildren(...[['有依据回答',s.answered],['转人工',s.handoffs],['资料不足',s.unanswered]].flatMap(([label,value])=>{const caption=node('div',`${label} ${value}`,'barlabel');const bar=node('div','', 'bar');const fill=node('span','');fill.style.width=(s.questions?value/s.questions*100:0)+'%';bar.append(fill);return [caption,bar]}));
   $('unanswered').replaceChildren(...(s.top_unanswered.length?s.top_unanswered.map(x=>{const li=node('li','', 'gap-item');li.append(node('span',x.question),node('small',`${x.product_name}${x.version?' · '+x.version:''} · ${x.count} 次`));const b=node('button','+ 补充答案','secondary');b.type='button';b.onclick=()=>openGap(x);li.append(b);return li}):[node('li','暂无未解决的知识缺口。','hint')]));const h=await api('/api/handoffs');$('handoffs').replaceChildren(...h.slice(0,5).map(x=>node('li',x.summary)));
 }
+const evalStatusNames={answered:'有依据回答',no_answer:'资料不足',handoff:'转人工',other:'其他'};
+function svgElement(tag,attributes={}){const element=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));return element}
+function renderTraining(history){
+  const holder=$('trainingChart');holder.replaceChildren();
+  if(!history.length){holder.append(node('div','还没有整理记录。点击“从资料生成问答”后可查看变化。','eval-chart-empty'));$('trainingInterpretation').textContent='这里记录问答整理的次数、问答总量和新增量；本项目没有模型参数训练，因此不提供 loss 或 epoch 曲线。';return}
+  const width=440,height=190,left=38,right=14,top=18,bottom=31;
+  const maximum=Math.max(1,...history.map(item=>item.total_faqs));
+  const x=index=>left+(history.length===1?0:index*(width-left-right)/(history.length-1));
+  const y=value=>height-bottom-value*(height-top-bottom)/maximum;
+  const svg=svgElement('svg',{viewBox:`0 0 ${width} ${height}`,role:'img','aria-label':'每次整理后的问答总量曲线'});
+  svg.append(svgElement('line',{x1:left,y1:height-bottom,x2:width-right,y2:height-bottom,stroke:'#8aaaca'}));
+  svg.append(svgElement('line',{x1:left,y1:top,x2:left,y2:height-bottom,stroke:'#8aaaca'}));
+  const points=history.map((item,index)=>`${x(index)},${y(item.total_faqs)}`).join(' ');
+  svg.append(svgElement('polyline',{points,fill:'none',stroke:'#1263a6','stroke-width':3,'stroke-linejoin':'round'}));
+  for(const [index,item] of history.entries()){
+    const dot=svgElement('circle',{cx:x(index),cy:y(item.total_faqs),r:4,fill:'#1263a6'});
+    const title=svgElement('title');title.textContent=`第 ${index+1} 次：总量 ${item.total_faqs}，新增 ${item.faqs_added}，扫描 ${item.documents_scanned} 份资料`;
+    dot.append(title);svg.append(dot);
+  }
+  for(const [content,xValue,yValue] of [[String(maximum),6,top+4],['0',19,height-bottom+4],['整理次数 →',width-85,height-6]]){
+    const label=svgElement('text',{x:xValue,y:yValue,fill:'#50637a','font-size':11});label.textContent=content;svg.append(label)
+  }
+  holder.append(svg);
+  const latest=history[history.length-1];
+  $('trainingInterpretation').textContent=`共 ${history.length} 次整理记录；最近一次扫描 ${latest.documents_scanned} 份资料，新增 ${latest.faqs_added} 条，当前记录范围内共 ${latest.total_faqs} 条问答。曲线是整理后问答数量，不是模型训练 loss；各次若选择的产品或版本不同，总量口径也不同。`;
+}
+function renderConfusion(result){
+  const holder=$('confusionChart'),table=node('table','','eval-table'),head=node('tr');
+  holder.replaceChildren();
+  for(const label of ['预期 \\ 实际',...result.labels.map(key=>evalStatusNames[key])])head.append(node('th',label));
+  table.append(head);
+  for(const expected of result.labels){const row=node('tr');row.append(node('th',evalStatusNames[expected]));for(const actual of result.labels){const cell=node('td',String(result.confusion_matrix[expected][actual]),expected===actual?'diag':'');row.append(cell)}table.append(row)}
+  const wrap=node('div','','eval-table-wrap');wrap.append(table);holder.append(wrap);
+  const wrong=result.comparisons.filter(item=>item.expected_status!==item.actual_status).length;
+  $('confusionInterpretation').textContent=`行是预期状态，列是实际状态；对角线表示状态判断正确。${result.cases} 个固定样例中有 ${wrong} 个状态判断错误。此矩阵只评估回答/拒答/转人工类别，不代表答案内容一定正确。`;
+}
+function renderRetrieval(result){
+  const holder=$('retrievalChart');holder.replaceChildren();
+  if(!result.retrieval_cases){holder.append(node('div','没有标注预期来源的样例。','eval-chart-empty'));$('retrievalInterpretation').textContent='需要在评估样例中提供 expected_source 才能计算命中率。';return}
+  const bars=node('div','','eval-bars');
+  for(const k of [1,3,5]){const value=result.hit_at_k[String(k)],row=node('div','','eval-bar-row'),bar=node('div','','bar'),fill=node('span');fill.style.width=Math.round(value*100)+'%';bar.append(fill);row.append(node('span','@'+k),bar,node('strong',Math.round(value*100)+'%'));bars.append(row)}
+  holder.append(bars);
+  $('retrievalInterpretation').textContent=`在 ${result.retrieval_cases} 个标注了预期来源的样例中，命中率@k表示预期文件是否出现在前 k 条检索片段里。@1 为 ${Math.round(result.hit_at_k['1']*100)}%，@5 为 ${Math.round(result.hit_at_k['5']*100)}%。这是检索指标，不表示最终答案正确。`;
+}
+function renderComparisons(result){
+  const holder=$('comparisonChart');holder.replaceChildren();
+  for(const [index,item] of result.comparisons.entries()){
+    const caseView=node('details','','eval-case');
+    const summary=node('summary',`${index+1}. ${item.question} · ${item.passed?'通过':'未通过'}`,item.passed?'eval-pass':'eval-fail');
+    caseView.append(summary);
+    const lines=[`产品/版本：${item.product_id} / ${item.version}`,`预期状态：${evalStatusNames[item.expected_status]||item.expected_status}`,`实际状态：${evalStatusNames[item.actual_status]||item.actual_status}`,`预期答案关键字：${item.expected_text||'无'}`,`实际答案：${item.actual_answer}`,`预期来源：${item.expected_source||'无'}`,`实际来源：${item.actual_sources.join('、')||'无'}`];
+    caseView.append(node('pre',lines.join('\n')));holder.append(caseView);
+  }
+  $('comparisonInterpretation').textContent=`${result.cases} 个固定样例中 ${result.passed} 个通过。通过需同时满足状态、答案关键字和来源；点击案例可查看差异。样例规模很小，不能据此推断真实业务准确率。`;
+}
+async function loadEvaluation(){
+  $('evaluationStatus').textContent='正在对当前知识库副本运行固定样例…';$('evaluationContent').hidden=true;
+  try{const result=await api('/api/evaluation');renderTraining(result.training_history);renderConfusion(result);renderRetrieval(result);renderComparisons(result);$('evaluationContent').hidden=false;$('evaluationStatus').textContent=`评估完成：${result.cases} 个虚构产品样例，${result.passed} 个通过。使用当前知识库副本；若未导入对应演示资料，结果不代表实际业务表现。`}
+  catch(error){$('evaluationStatus').textContent='评估失败：'+error.message}
+}
+$('openEvaluation').onclick=()=>{const dialog=$('evaluationPanel');if(!dialog.open){dialog.showModal();loadEvaluation()}};
+$('closeEvaluation').onclick=()=>$('evaluationPanel').close();
 function feedbackControls(result){
   const panel=node('div','', 'feedback-controls'),row=node('div','', 'row'),message=node('p','','hint');
   const buttons=[];
@@ -230,7 +305,10 @@ $('trainFaqs').onclick=async()=>{
   try{
     const scope=$('product').value&&$('version').value?'?product_id='+encodeURIComponent($('product').value)+'&version='+encodeURIComponent($('version').value):'';
     const result=await api('/api/faqs/train'+scope,{method:'POST'});
-    $('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，新增 ${result.faqs_added} 条问答。`;
+    if(!result.documents_scanned){$('trainMsg').textContent='当前范围没有可整理的资料。请先导入文档，或检查左侧产品和版本。'}
+    else if(result.faqs_added){$('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，新增 ${result.faqs_added} 条问答；当前范围共 ${result.faqs_total} 条。`}
+    else if(result.already_present){$('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，可生成的 ${result.already_present} 条问答已存在，新增 0 条；当前范围共 ${result.faqs_total} 条。重复整理不会复制相同问答。`}
+    else{$('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，未识别出新的有原文依据的问答。${result.empty_documents?'其中 '+result.empty_documents+' 份资料无法还原文字。':''}请核对原文或手动补充问答。`}
     await refresh();await loadTrainedFaqs();await docs();
     if($('product').value&&$('version').value)await loadFaqSuggestions();
   }catch(error){$('trainMsg').textContent='整理失败：'+error.message}
