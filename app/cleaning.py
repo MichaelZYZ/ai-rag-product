@@ -14,7 +14,7 @@ PAGE_MARKER = re.compile(
 )
 
 
-def clean_document(text: str):
+def clean_document(text: str, *, remove_page_markers=True, remove_duplicates=True):
     """Return cleaned text and a report; never infer or rewrite product facts."""
     raw_chars = len(text)
     text = unicodedata.normalize('NFC', text).translate(FULLWIDTH_ASCII)
@@ -37,10 +37,10 @@ def clean_document(text: str):
         if not clean:
             report['empty_lines_removed'] += 1
             continue
-        if PAGE_MARKER.fullmatch(clean):
+        if remove_page_markers and PAGE_MARKER.fullmatch(clean):
             report['page_markers_removed'] += 1
             continue
-        if output and clean == output[-1] and len(clean) >= 6:
+        if remove_duplicates and output and clean == output[-1] and len(clean) >= 6:
             report['adjacent_duplicates_removed'] += 1
             continue
         output.append(clean)

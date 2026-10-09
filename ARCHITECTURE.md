@@ -21,7 +21,7 @@ flowchart LR
 
 | 位置 | 职责 |
 | --- | --- |
-| `app/static/index.html` | 产品与版本选择、聊天、资料导入、话术整理、知识缺口、统计与效果评估界面；通过 `fetch` 调用 API。 |
+| `app/static/index.html` | 产品问答与独立知识配置视图：清洗参数、三步导入、QA 预览审核、Prompt 调整、话术整理；保留知识缺口、统计与评估；通过 `fetch` 调用 API。 |
 | `app/main.py` | FastAPI 路由、请求字段校验、异常到 HTTP 状态码的转换、统计查询。 |
 | `app/core.py` | 数据库初始化、资料入库、向量检索、FAQ 匹配、会话编排、转人工、人工补充和可选 LLM 调用。 |
 | `app/html_extract.py` | 从 HTML 提取可见文字，保留标题和块级分隔，过滤脚本、样式等页面内容。 |
@@ -36,24 +36,26 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[选择产品、版本并上传文件] --> B[解析 TXT / MD / HTML / DOCX / PDF]
-    B --> C[清洗文字并保存 cleaning_report]
-    C --> D[保存 document_texts 原文]
-    C --> E[按标题与事实行切片]
-    C --> F[提取显式 FAQ 与规则 FAQ]
-    E --> G[生成 4096 维字符向量]
-    F --> H[为问题生成向量]
-    G --> I[(chunks)]
-    H --> J[(faqs)]
+    A[知识配置：导入文件与参数] --> B[POST /api/documents/preview]
+    B --> C[prepare_document：解析、清洗、QA 与片段]
+    C --> D[展示原文和统计，不写库]
+    D --> E[QA 问答分段：核对答案、调整问题、勾选 QA]
+    E -- 返回调整 --> A
+    E -- 确认入库 --> F[POST /api/documents：同一文件和参数]
+    F --> G[重新处理并校验候选索引，保留原文答案]
+    G --> H[向量化并事务保存完整原文、片段、已选 QA 和清洗参数]
+    H --> I[完成：测试对应产品版本的问答]
 ```
 
-上传接口是 `POST /api/documents`，单文件上限 5 MB。支持 `.txt`、`.md`、`.html`、`.htm`、`.docx` 和可提取文字的 `.pdf`。HTML 提取可见正文；DOCX 读取文档 XML；PDF 使用 `pypdf` 提取文字，扫描件需要事先 OCR。
+预览接口为 `POST /api/documents/preview`，确认入库接口为 `POST /api/documents`，单文件上限 5 MB。支持 `.txt`、`.md`、`.html`、`.htm`、`.docx` 和可提取文字的 `.pdf`。HTML 提取可见正文；DOCX 读取文档 XML；PDF 使用 `pypdf` 提取文字，扫描件需要事先 OCR。
 
-清洗后的完整文字保存在 `document_texts`。切片默认每段最多约 360 字，长行重叠 50 字，标题随正文一起存入片段。`HashingVectorizer` 使用字符 2 至 4 gram、4096 维、L2 归一化；向量以 `float32` 字节存入 SQLite。导入时还会识别文档中的 `Q:/A:`、`问题:/答案:`，并从明确事实或章节标题生成初始 FAQ。
+界面使用“导入 → QA 问答分段 → 完成”的流程。可配置页码和相邻重复行过滤、片段长度（120～2000 字）及重叠长度（小于片段长度的一半）。预览不写库，确认时重新上传原文件并传入 `review=true`、已选 QA 的索引及问题；答案由后端从重新处理的原文候选取得。没有选择 QA 时仍保存片段，取消 QA 不删除原文事实。
+
+清洗后的完整文字保存在 `document_texts`，本次参数保存在 `cleaning_report.settings`。切片默认每段最多约 360 字，长行默认重叠 50 字（不超过正文容量的一半），标题随正文一起存入片段。`HashingVectorizer` 使用字符 2 至 4 gram、4096 维、L2 归一化；向量以 `float32` 字节存入 SQLite。导入时还会识别文档中的 `Q:/A:`、`问题:/答案:`，并从明确事实或章节标题生成初始 FAQ。
 
 ## 4. 话术整理与人工补充
 
-“整理产品话术”调用 `POST /api/faqs/train`，可以限定产品和版本。它逐份读取已保存的资料原文，从章节、显式问答以及“首次开机：…”“无法充电：…”这类带主题的条目补充问答。保存前会检查答案文字出自该文档，并按文档及规范化问题去重，因此重复执行不会重复新增。旧文档缺少完整原文时，系统会尽量从已存片段重建。
+“知识配置”中的“整理产品话术”要求选择目标产品和版本，调用 `POST /api/faqs/train`，可以限定产品和版本。它逐份读取已保存的资料原文，从章节、显式问答以及“首次开机：…”“无法充电：…”这类带主题的条目补充问答。保存前会检查答案文字出自该文档，并按文档及规范化问题去重，因此重复执行不会重复新增。旧文档缺少完整原文时，系统会尽量从已存片段重建。
 
 这里的“训练”是**整理并索引 FAQ**，不会修改模型参数。自动生成的答案基于资料文字，仍可能需要人工审核问法是否自然、适用范围是否准确。
 
@@ -82,7 +84,7 @@ flowchart TD
 
 命中 FAQ 时将保存的答案作为事实答案返回。未命中 FAQ 但片段足够相关时，若设置了 `LLM_BASE_URL`、`LLM_API_KEY` 和 `LLM_MODEL`，后端会把命中片段交给兼容 Chat Completions 的服务；未设置或调用失败时返回命中片段原文。API 的 `answer` 保留事实答案，聊天界面展示的 `display_answer` 仅增加口语化引导，不改变事实内容；`suggested_questions` 从同产品、同版本的 FAQ 中选择最多两个后续问题。回答还附带来源、相关度、状态、会话 ID 和消息 ID。退款、投诉等关键词触发转人工；资料不足的问题进入 `unanswered`，供人工补充。
 
-模型 Prompt 可以在右侧管理区编辑。自定义内容保存在 `settings`，新模型请求会立即使用它；删除自定义配置后恢复读取 `prompts/answer.txt`。页面会显示模型环境变量是否已配置。这个 Prompt 只参与上述模型调用，FAQ 答案和无模型时的固定话术不会受其影响。
+模型 Prompt 可以在独立“知识配置”界面编辑。自定义内容保存在 `settings`，新模型请求会立即使用它；删除自定义配置后恢复读取 `prompts/answer.txt`。页面会显示模型环境变量是否已配置。这个 Prompt 只参与上述模型调用，FAQ 答案和无模型时的固定话术不会受其影响。
 
 ## 6. 数据模型
 
@@ -109,6 +111,7 @@ flowchart TD
 | --- | --- |
 | `GET /api/products`、`GET /api/products/featured`、`GET /api/products/catalog`、`GET /api/products/search` | 产品选择、热门产品和搜索。 |
 | `POST /api/products` | 新建或更新产品。 |
+| `POST /api/documents/preview` | 文件清洗、片段与候选 QA 预览，不写库。 |
 | `POST /api/documents`、`GET /api/documents`、`DELETE /api/documents/{id}` | 导入、查看和删除资料。 |
 | `GET /api/faqs`、`POST /api/faqs/train`、`POST /api/faqs/manual` | 查看、整理和人工补充问答。 |
 | `POST /api/ask` | 提问并返回答案、状态与来源。 |
@@ -122,6 +125,6 @@ FastAPI 自动接口文档位于 `/docs`。
 
 ## 8. 运行与边界
 
-本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：优先复用可用的 `.venv`，否则枚举已安装的 Python 3.9+ 并逐个尝试虚拟环境和依赖安装；都不可用时通过 `winget` 安装 Python 3.11。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。SQLite 文件被 Git 忽略，跨机器迁移需另行复制该文件，详见 README。
+本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：优先复用可用的 `.venv`，否则通过启动器、注册表、常见目录和 PATH 枚举 Python 3.9+ 并逐个尝试，升级兼容的 pip，校验依赖及应用模块导入；都不可用且未尝试过 3.11 时通过 `winget` 安装 Python 3.11。Python 探测代码避免嵌入双引号，兼容 PowerShell 5.1 原生命令传参；`start_windows.bat --setup-only` 仅准备环境、不启动服务。Python 3.9～3.14 的 Windows x64 依赖解析已通过；同版本 Windows 启动与测试矩阵见 `.github/workflows/windows-startup.yml`，本次 macOS 环境尚未执行该工作流。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。SQLite 文件被 Git 忽略，跨机器迁移需另行复制该文件，详见 README。
 
 当前实现面向课堂演示：没有管理员鉴权、权限隔离、限流或正式工单系统；SQLite 和内存中逐条比较向量适合小规模资料；字符 n-gram 并非语义 Embedding。可选 LLM 只用于片段回答，现有代码没有逐句忠实度校验。上线前需要补充权限和审核、检索质量评估、文档 OCR、冲突治理及运行监控。

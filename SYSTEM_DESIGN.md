@@ -1,6 +1,6 @@
 # 产品知识库问答系统：架构、数据流程与核心实现设计文档
 
-整理日期：2026-10-02。本文以当前仓库源代码为依据，面向课程报告、项目答辩与维护交接。图表采用 Mermaid，可在支持 Mermaid 的 Markdown 阅读器中查看。
+整理日期：2026-10-09。本文以当前仓库源代码为依据，面向课程报告、项目答辩与维护交接。图表采用 Mermaid，可在支持 Mermaid 的 Markdown 阅读器中查看。
 
 ## 1. 项目概述
 
@@ -39,11 +39,11 @@ flowchart TB
 
 | 层次 / 模块 | 代码位置 | 职责与选型原因 |
 | --- | --- | --- |
-| 展示层 | `app/static/index.html` | 聊天、产品选择、上传、FAQ 整理、缺口补充、反馈、统计及评估；无需前端构建服务。 |
+| 展示层 | `app/static/index.html` | “产品问答”与独立“知识配置”视图；配置文件清洗、QA 分段和 Prompt，问答页保留咨询、缺口补充、反馈及评估；无需前端构建服务。 |
 | 接口层 | `app/main.py` | Pydantic 请求模型、API 路由、参数校验与 HTTP 错误转换。 |
-| 业务层 | `app/core.py` | 产品和版本范围、会话、入库、检索、FAQ 匹配、拒答、人工记录和可选模型调用。 |
+| 业务层 | `app/core.py` | 产品和版本范围、无写入的文档预处理、审核后入库、会话、检索、FAQ 匹配、拒答、人工记录和可选模型调用。 |
 | 解析层 | `app/html_extract.py`、`core.parse_document` | HTML 可见文字、TXT/MD、DOCX XML、PDF 文字提取。 |
-| 清洗层 | `app/cleaning.py` | 字符规范化、空白和页码处理、相邻重复行过滤、生成清洗报告。 |
+| 清洗层 | `app/cleaning.py` | 字符规范化、空白处理，可配置页码及相邻重复行过滤，生成清洗报告和本次参数记录。 |
 | FAQ 生成 | `app/faq.py` | 提取显式问答，根据明确事实、章节及主题条目构造问法，答案来自资料。 |
 | 检索计算 | NumPy、scikit-learn | 无需拟合的哈希向量，点积与字符覆盖率混合评分。 |
 | 持久化 | SQLite | 单文件部署，保存关系数据与 `float32` 向量 BLOB。 |
@@ -52,32 +52,43 @@ flowchart TB
 
 关键设计取舍：单体与 SQLite 降低演示部署成本；产品和版本先过滤，减少串答；FAQ 优先提供稳定答案；保留来源和清洗报告支持核对；可选模型失败后回退原文，使离线环境也能完成问答。
 
+### 2.3 独立知识配置界面
+
+顶部导航提供“产品问答”和“知识配置”两个视图，使用同一 `app/static/index.html` 和后端服务；`/#configuration` 打开配置视图。文件清洗、QA 预览、已有资料的问答整理和模型 Prompt 编辑从聊天页右侧移入配置界面。配置界面独立选择目标产品并填写版本，可直接建立新版本，不依赖当前聊天范围；返回问答不会主动清除原会话。
+
+资料操作采用“导入 → QA 问答分段 → 完成”三步：先选择文件与清洗参数，再核对原文、片段和候选 QA，最后确认写入。第二步可修改问题表达、取消不合适的 QA，答案保留来源原句；没有识别出 QA 或全部取消时，仍可保存检索片段。完成后点击“测试问答”切换到此次导入的产品版本并开始新会话，或继续导入下一份资料。
+
+Prompt 在同一配置界面显示当前来源、模型接入状态，并支持保存和恢复默认。它仅影响已接入模型的片段生成回答，不改变已存 FAQ 答案或离线固定话术。已有资料的“从资料生成问答”要求先选择目标产品并填写版本；API 不传范围时仍可扫描全部资料。
+
 ## 3. 数据流程设计
 
 ### 3.1 资料导入数据流程图
 
 ```mermaid
 flowchart TD
-    A[维护人员：文件 + 产品 + 版本 + 类别] --> B[POST /api/documents]
-    B --> C{产品存在 / 版本非空 / 文件不超过 5 MB}
-    C -- 不满足 --> E[返回参数错误]
-    C -- 满足 --> D[按扩展名解析文字]
-    D --> F[clean_document：清洗并生成报告]
-    F --> G[split_text：保留标题并切片]
-    F --> H[extract_faqs：显式 / 规则 / 章节 FAQ]
-    H --> I[必要时补充 FAQ 答案片段]
-    G --> I
-    I --> J[正文生成 4096 维向量]
-    H --> K[规范化问题并生成 4096 维向量]
-    F --> L[事务写入 documents / document_texts]
-    J --> M[同一事务写入 chunks]
-    K --> N[同一事务写入 faqs]
-    L --> O[返回文档 ID、片段数、FAQ 数及清洗报告]
-    M --> O
-    N --> O
+    A[知识配置：产品 / 版本 / 文件 / 清洗与分段参数] --> B[POST /api/documents/preview]
+    B --> C{产品 / 版本 / 文件大小 / 分段参数有效?}
+    C -- 否 --> E[提示错误，返回调整]
+    C -- 是 --> D[prepare_document：解析与可配置清洗]
+    D --> F[extract_faqs + extract_training_faqs：去重候选 QA]
+    D --> G[split_text：保留标题并生成检索片段]
+    F --> H[返回清洗报告 / 原文 / QA / 片段，不写库]
+    G --> H
+    H --> I[人工核对：改问题表达、勾选 QA，答案保持原文]
+    I -- 返回调整 --> A
+    I -- 确认入库 --> J[POST /api/documents：原文件与相同参数]
+    J --> K[重新处理原文件，校验所选 QA 索引和问题]
+    K --> L[从重新生成的候选中取答案，忽略客户端答案]
+    L --> M[生成片段向量与已选 QA 问题向量]
+    M --> N[事务写入 documents / document_texts / chunks / faqs]
+    N --> O[完成：展示保存数量，可切换产品版本测试问答]
 ```
 
 输入支持 `.txt`、`.md`、`.html`、`.htm`、`.docx` 和可提取文字的 `.pdf`。TXT/MD 使用 UTF-8 BOM 兼容解码；HTML 处理编码与可见文字；DOCX 从压缩包的 `word/document.xml` 提取段落；PDF 使用 `pypdf`。扫描版 PDF 需要在系统外完成 OCR。
+
+预览调用 `prepare_document()`，不生成数据库向量，也不写入文档、片段或 FAQ。当前预览暂存在浏览器中，原文件需在确认时再次上传；刷新配置页会丢失未提交预览。确认入库传递同一文件与清洗参数、`review=true` 以及 `selected_faqs`。后端重新处理文件，再根据候选索引取原文答案，不使用客户端提供的答案。问题必须为 1～500 字的非空字符串，索引须为有效整数且不可重复；参数或选择无效时拒绝写入。
+
+取消勾选只排除该候选 QA，不删除原文事实或对应检索片段；后续仍可通过片段检索回答相关问题。该审核流程帮助核对问答适配和来源，实际准确率需通过业务问题与评估集验证。清洗参数记录在 `documents.cleaning_report.settings`，不新增独立草稿表。
 
 入库保存的是清洗后的完整文字和派生知识，并未将上传文件原始字节作为附件保存。`documents.source` 通常为文件名，不是可直接打开的文件下载地址。
 
@@ -326,16 +337,16 @@ erDiagram
 
 ### 5.1 文本清洗与上下文切片
 
-`clean_document()` 使用 NFC 规范化并转换全角 ASCII，统一换行与空白，移除零宽字符和非必要控制字符；只删除匹配规则的页码、空行，以及长度至少 6 字的相邻重复行。清洗不推断或改写产品事实，各类处理数量写入报告。
+`clean_document()` 使用 NFC 规范化并转换全角 ASCII，统一换行与空白，移除零宽字符和非必要控制字符；只删除匹配规则的页码、空行，以及长度至少 6 字的相邻重复行。清洗不推断或改写产品事实，各类处理数量写入报告。`remove_page_markers` 和 `remove_duplicates` 控制页码及相邻重复行过滤，默认均启用；字符与空白规范化仍自动执行。
 
 `split_text(text, max_chars=360, overlap=50)` 按行处理：
 
 1. `#` 标题更新当前上下文，标题最多保留 80 字，并附加到后续片段。
 2. 问题标记或问号结尾的行不直接作为事实片段；答案标记从正文中去除。
 3. 小于 6 字的短行先合并到后续事实行。
-4. 长行按正文可用长度切片，相邻窗口默认重叠 50 字。
+4. 长行按正文可用长度切片，默认重叠 50 字，实际重叠不超过正文容量的一半。
 
-设标题前缀长度为 `p`，正文容量为 `r = max(80, 360 - p)`，步长为 `max(1, r - 50)`。这种方式保留章节上下文，同时避免完全不重叠切分造成边界信息丢失。它不是递归语义切分；问号结尾的真实事实也可能被过滤。
+设标题前缀长度为 `p`、片段上限为 `m`、设置重叠为 `o`，正文容量为 `r = max(1, m - p)`，实际重叠为 `min(o, r // 2)`，步长为 `max(1, r - min(o, r // 2))`。界面和后端限制 `120 ≤ m ≤ 2000`、`0 ≤ o < m // 2`，默认 `m=360`、`o=50`。这种方式保留章节上下文，同时避免完全不重叠切分造成边界信息丢失。它不是递归语义切分；问号结尾的真实事实也可能被过滤。
 
 ### 5.2 字符 n-gram 哈希向量
 
@@ -424,7 +435,7 @@ FAQ 分为五类：`explicit`（显式问答）、`rule`（事实规则）、`au
 
 ### 6.1 向量配置与入库
 
-位置：[app/core.py](app/core.py)，`VECTORIZER`、`add_document()`。
+位置：[app/core.py](app/core.py)，`VECTORIZER`、`prepare_document()`、`add_document()`。
 
 ```python
 VECTORIZER = HashingVectorizer(analyzer='char', ngram_range=(2, 4), n_features=4096,
@@ -510,6 +521,22 @@ answer = generated or sources[0]['text']
 
 网页评估通过 SQLite `backup()` 生成临时副本，以子进程的 `RAG_DB` 指向副本，并移除模型配置后运行 `app.evaluation_worker`。问答过程中产生的消息与知识缺口只写入副本，正式咨询记录不受影响；子进程限制为 45 秒。
 
+### 6.7 清洗预览与审核后入库
+
+位置：[app/main.py](app/main.py)，`preview_document()`、`document_request()`；[app/core.py](app/core.py)，`prepare_document()`、`add_document()`。
+
+```python
+# 预览：解析、清洗、候选 QA 和检索片段，尚不写入数据库。
+prepared = prepare_document(product_id, version, filename, content,
+                            include_training=True, **cleaning_settings)
+
+# 审核入库：后端重新生成候选，只接受索引和经调整的问题。
+selected.append({**faqs[index], 'question': question.strip()})
+faqs = selected
+```
+
+以上为流程摘录；完整校验包括文件大小、产品版本、分段参数、候选索引范围、重复索引与问题长度。向量化和事务写入发生在校验之后。旧客户端仍可直接调用 `POST /api/documents`，不传审核字段时保留自动提取并入库的行为。
+
 ## 7. 接口与响应设计
 
 ### 7.1 接口清单
@@ -521,7 +548,8 @@ answer = generated or sources[0]['text']
 | `GET /api/products/featured` | 热门产品；无咨询数据时返回全部已索引产品。 |
 | `GET /api/products/catalog` | 已导入知识的产品目录与统计。 |
 | `GET /api/products/search?q=...` | 产品发现。 |
-| `POST /api/documents` | multipart 文件上传及产品、版本、类别、标题。 |
+| `POST /api/documents/preview` | multipart 文件、产品版本和清洗分段参数；返回预览，不写库。 |
+| `POST /api/documents` | 上传原文件；审核流程另传 `review`、`selected_faqs` 和同一组清洗分段参数。 |
 | `GET /api/documents` | 资料列表，可按产品过滤。 |
 | `DELETE /api/documents/{document_id}` | 删除资料及关联知识。 |
 | `GET /api/faqs` | 按产品、版本返回 FAQ。 |
@@ -568,6 +596,23 @@ API 自动文档入口为 `/docs`。常见业务输入错误返回 HTTP 400；�
 | `handoff_id` | 人工处理记录编号，未产生时为 `null`。 |
 | `latency_ms` | 本次处理耗时。 |
 
+### 7.3 文件清洗与 QA 审核接口参数
+
+两个文档接口均使用 multipart。预览返回 `text`、`cleaning`、`chunks` 和 `faqs`；提交返回 `document_id`、片段数、FAQ 数、字符数和清洗报告。清洗参数按本次资料保存，不是全局设置。
+
+| 字段 | 默认 / 约束 | 用途 |
+| --- | --- | --- |
+| `product_id`、`version`、`file` | 必填；产品存在、版本非空，文件最大 5 MB | 资料归属和原文件。 |
+| `remove_page_markers` | `true` | 是否过滤匹配规则的页码行。 |
+| `remove_duplicates` | `true` | 是否移除相邻重复行。 |
+| `max_chars` | `360`；120～2000 | 片段最大字数，包含标题前缀。 |
+| `overlap` | `50`；非负且小于 `max_chars // 2` | 长正文片段重叠字数，上限为正文容量的一半。 |
+| `category`、`title` | 提交时可选；类别默认“产品说明”，标题默认文件名 | 入库资料的分类和标题。 |
+| `review` | 提交默认 `false`；界面审核提交为 `true` | 包含主题条目的候选问答，与预览一致。 |
+| `selected_faqs` | 提交时可选，JSON 数组 | 元素为候选 `index` 和调整后的 `question`；空数组仅保存片段。 |
+
+未传 `selected_faqs` 时自动保存所生成的全部候选；审核流程应传明确的数组并保持预览时的文件和参数一致。该流程未使用服务端草稿 ID，不能把候选索引跨文件复用。
+
 ## 8. 运行部署与配置
 
 手动启动示例：
@@ -581,6 +626,22 @@ python run_server.py
 ```
 
 Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。启动器将服务绑定到 `127.0.0.1`，以终端实际打印地址为准。`seed.py --if-empty` 仅在数据库没有资料时导入演示数据；直接执行 `seed.py` 会重建演示资料，应按用途选择。
+
+### 8.1 Windows 多版本 Python 启动
+
+`start_windows.bat` 调用 Windows 自带的 PowerShell，引导脚本接受 Python 3.9 及以上并跳过更旧版本。环境准备顺序如下：
+
+1. 检查 `.venv/Scripts/python.exe`，优先复用可用环境并补齐依赖。
+2. 未准备成功时，通过 `py -0p`、用户及系统注册表、常见目录和 PATH 收集并按解释器实际路径去重。启动器版本候选优先顺序为 3.11、3.12、3.13、3.14、3.10、3.9，其他识别到的版本也可继续尝试。
+3. 逐个创建虚拟环境，必要时运行 `ensurepip`，升级到兼容该 Python 的 pip，安装 `requirements.txt`；检查依赖和 `app.core` 导入，再执行 `pip check`。失败记录原因并继续尝试下一解释器。
+4. 已有候选都不可用且未尝试过 3.11 时，如有 `winget`，尝试为当前用户安装 Python 3.11，再重新识别候选。
+5. 环境可用后输出实际 Python 版本与路径，执行 `seed.py --if-empty`，然后启动本机服务。
+
+Python 探测命令使用 Python 单引号字符串，避免 Windows PowerShell 5.1 原生命令参数丢失嵌入双引号的问题。`start_windows.bat --setup-only` 仅准备环境和初始化空库，不启动服务；直接双击仍正常启动。脚本失败返回非零退出码，交互场景暂停以便查看错误，CI 环境不暂停。
+
+当前兼容性证据为 Python 3.9～3.14 的 Windows x64 依赖解析均可取得兼容预编译包；这不是 Windows 启动实测。`.github/workflows/windows-startup.yml` 已配置同六个 Python 版本，在含空格的目录下通过 Windows PowerShell 5.1 调用批处理入口，并验证实际选择的解释器及应用测试。本次工作环境为 macOS，尚未运行该 Windows 工作流；32 位、ARM64 和其他版本未在本次矩阵中验证。
+
+### 8.2 模型与数据库配置
 
 | 配置项 | 用途 |
 | --- | --- |
@@ -596,7 +657,7 @@ Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。�
 
 ### 9.1 现有验证覆盖
 
-`tests/` 中已有清洗、HTML 导入、FAQ 提取与整理、会话、产品发现、人工补充、评价、Prompt 配置、评估隔离、启动器及演示资料保留等测试。核心关注点是产品／版本隔离、未知问题拒答、FAQ 去重和来源可核对。
+`tests/` 中已有清洗、HTML 导入、FAQ 提取与整理、会话、产品发现、人工补充、评价、Prompt 配置、评估隔离、启动器及演示资料保留等测试。新增 `test_document_review.py` 覆盖预览不写库、无效参数与选择不写库、原文答案保护、QA 修改与选择、无 QA 回退和版本隔离；`test_launcher.py` 覆盖探测代码执行及启动端口选择。`windows_bootstrap_checks.ps1` 用于 Windows 原生传参、版本接受与拒绝、路径去重和失败退出检查。
 
 固定样例脚本运行方式：
 
@@ -604,7 +665,7 @@ Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。�
 .venv/bin/python evaluate.py
 ```
 
-本次整理文档时于 2026-10-02 实际运行该命令，8 个样例全部通过，退出码为 0：
+本次同步文档时于 2026-10-09 实际运行该命令，8 个样例全部通过，退出码为 0：
 
 | 场景 | 预期与实际结果 |
 | --- | --- |
@@ -617,7 +678,7 @@ Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。�
 | 未收录的 Word 导出能力 | `no_answer`。 |
 | 退款请求 | `handoff`。 |
 
-脚本输出 `status_accuracy=1.0`、`answer_match_rate=1.0`、`source_hit_rate=1.0`。本次仅运行固定样例评估，没有据此宣称全部单元测试或真实模型服务已经验证。
+脚本输出 `status_accuracy=1.0`、`answer_match_rate=1.0`、`source_hit_rate=1.0`。同日最近一次应用回归共 33 项测试通过；浏览器已验证清洗预览、QA 修改与选择、确认入库、指定版本问答、Prompt 刷新保留及手机布局。Windows 依赖解析通过，完整启动矩阵尚待执行；真实模型服务未在本次验证。
 
 ### 9.2 指标口径
 
@@ -646,15 +707,16 @@ Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。�
 
 | 主题 | 文件 / 核心入口 |
 | --- | --- |
-| 网页交互与图表 | [app/static/index.html](app/static/index.html)：`send`、`answerBubble`、`loadEvaluation`。 |
-| API 和请求类 | [app/main.py](app/main.py)：`AskInput`、`upload_document`、`ask`、`feedback`、`evaluation`。 |
-| 数据库与导入 | [app/core.py](app/core.py)：`connect`、`init_db`、`parse_document`、`split_text`、`add_document`。 |
+| 网页交互与图表 | [app/static/index.html](app/static/index.html)：`showPage`、`setStep`、`configProducts`、`send`、`answerBubble`、`loadEvaluation`。 |
+| API 和请求类 | [app/main.py](app/main.py)：`AskInput`、`preview_document`、`document_request`、`upload_document`、`ask`、`feedback`、`evaluation`。 |
+| 数据库与导入 | [app/core.py](app/core.py)：`connect`、`init_db`、`parse_document`、`prepare_document`、`split_text`、`add_document`。 |
 | 检索与会话 | [app/core.py](app/core.py)：`retrieve`、`match_faq`、`detect_product`、`ask`。 |
 | 知识维护与模型 | [app/core.py](app/core.py)：`bootstrap_faqs`、`supplement_gap`、`handoff`、`llm_answer`。 |
 | 文本处理 | [app/cleaning.py](app/cleaning.py)、[app/html_extract.py](app/html_extract.py)。 |
 | FAQ 生成规则 | [app/faq.py](app/faq.py)：`extract_faqs`、`extract_training_faqs`。 |
 | 模型行为约束 | [prompts/answer.txt](prompts/answer.txt)。 |
 | 固定评估 | [evaluate.py](evaluate.py)、[app/evaluation_worker.py](app/evaluation_worker.py)、[data/eval_cases.json](data/eval_cases.json)。 |
-| 部署入口 | [run_server.py](run_server.py)、[README.md](README.md)。 |
+| 部署入口 | [run_server.py](run_server.py)、[start_windows.bat](start_windows.bat)、[bootstrap_windows.ps1](bootstrap_windows.ps1)、[README.md](README.md)。 |
+| Windows 验证 | [.github/workflows/windows-startup.yml](.github/workflows/windows-startup.yml)、[tests/windows_bootstrap_checks.ps1](tests/windows_bootstrap_checks.ps1)。 |
 
 本文集中描述当前实现；已有 [ARCHITECTURE.md](ARCHITECTURE.md) 与 [BUSINESS_OPERATIONS.md](BUSINESS_OPERATIONS.md) 可作为架构摘要和操作流程的补充阅读。

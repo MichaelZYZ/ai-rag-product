@@ -1,0 +1,63 @@
+name: Windows Python compatibility
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'start_windows.bat'
+      - 'bootstrap_windows.ps1'
+      - 'requirements.txt'
+      - 'app/**'
+      - 'tests/**'
+      - '.github/workflows/windows-startup.yml'
+  pull_request:
+    paths:
+      - 'start_windows.bat'
+      - 'bootstrap_windows.ps1'
+      - 'requirements.txt'
+      - 'app/**'
+      - 'tests/**'
+      - '.github/workflows/windows-startup.yml'
+permissions:
+  contents: read
+jobs:
+  startup:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+    defaults:
+      run:
+        working-directory: project with spaces
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: project with spaces
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+      - name: Create environment using the matrix interpreter
+        shell: powershell
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the Windows batch entry point without starting the server
+        shell: cmd
+        env:
+          RAG_DB: ${{ runner.temp }}\rag-startup.sqlite3
+        run: start_windows.bat --setup-only
+      - name: Verify native arguments and version detection with PowerShell 5.1
+        shell: powershell
+        run: |
+          .\tests\windows_bootstrap_checks.ps1 -PythonExecutable (Join-Path $PWD '.venv\Scripts\python.exe') -ExpectedVersion '${{ matrix.python }}'
+      - name: Run application regression tests
+        shell: powershell
+        env:
+          RAG_DB: ${{ runner.temp }}\rag-startup.sqlite3
+        run: |
+          .\.venv\Scripts\python.exe -m pip install httpx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\.venv\Scripts\python.exe -m unittest discover -s tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

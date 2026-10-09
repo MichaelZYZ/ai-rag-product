@@ -30,11 +30,14 @@ textarea{min-height:75px}button{border:0;border-radius:8px;padding:10px 14px;bac
 dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);margin:auto;padding:20px;border:1px solid #cad9e8;border-radius:14px;box-shadow:0 20px 55px #102b4455;overflow:auto}dialog.evaluation:not([open]){display:none}dialog.evaluation::backdrop{background:#10263d99}.eval-grid[hidden]{display:none}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.chat{min-height:570px}.messages{max-height:430px}.sidebar{margin-bottom:20px}}
 @media(max-width:820px){.evaluation{margin:0 18px 24px}}@media(max-width:650px){.eval-grid{grid-template-columns:1fr}}@media(max-width:520px){.scope-fields{grid-template-columns:minmax(0,1fr) 112px}.composer-actions .secondary{padding:9px 7px}}
+
+[hidden]{display:none!important}button:disabled{opacity:.6;cursor:wait}.page-nav{max-width:1160px;margin:16px auto 0;padding:0 18px;display:flex;gap:8px}.config-page{max-width:1160px;margin:20px auto;padding:0 18px 24px}.config-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}.config-heading h2{font-size:22px;margin:0}.config-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start}.config-grid .card{min-width:0}.config-grid details:first-child{border-top:0;margin-top:0;padding-top:0}.existing-faqs{margin-top:18px}.existing-faqs details{border:0;margin:0;padding:0}.steps{display:flex;gap:8px;padding:0;list-style:none;margin:16px 0}.steps li{flex:1;background:#f1f5f9;border-radius:8px;padding:10px;color:#50637a;font-size:13px}.steps .active{background:#1263a6;color:#fff}.steps .done{background:#e1f1e7;color:#226943}.config-page fieldset{border:0;padding:0;margin:0;min-width:0}.clean-options{display:flex;gap:16px;flex-wrap:wrap}.clean-options input,.qa-item input[type=checkbox]{width:auto;margin-right:6px}.clean-options label{display:flex;align-items:center}.flow-action{margin-top:16px}.scope-banner{background:#eaf3fa;padding:12px;border-radius:8px;overflow-wrap:anywhere}.qa-preview{max-height:520px;overflow:auto}.qa-item{border:1px solid #dce4ef;border-radius:10px;padding:12px;margin:10px 0}.qa-item label{margin-top:0}.qa-answer,.source-preview,.chunk-preview li{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;font-size:13px}.qa-answer{margin-bottom:0;color:#50637a}.source-preview,.chunk-preview{max-height:320px;overflow:auto}.chunk-preview li{padding:10px;border-bottom:1px solid #e4ebf2}.prompt-card .prompt-editor{min-height:360px}.prompt-card summary{font-size:16px}@media(max-width:820px){.config-grid{grid-template-columns:1fr}.steps li{padding:9px 6px;font-size:12px}.config-heading h2{font-size:20px}}
 </style>
 </head>
 <body>
-<header><h1>产品问答</h1><small>选择产品和版本，直接提问</small></header>
-<main class="layout">
+<header><h1>产品知识问答</h1><small>管理知识资料，让回答有据可查</small></header>
+<nav class="page-nav" aria-label="主导航"><button id="chatNav" type="button">产品问答</button><button id="configNav" type="button" class="secondary">知识配置</button></nav>
+<main id="chatPage" class="layout">
 <section class="card chat">
 <h2>提问</h2>
 <div class="scope-fields"><div><label for="product">产品</label><select id="product"></select></div><div><label for="version">版本</label><select id="version"></select></div></div>
@@ -48,26 +51,8 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 </section>
 <aside class="card sidebar"><h2>知识库管理</h2><p class="hint section-note">需要时展开下面的工具。</p>
 <button id="openEvaluation" type="button" class="secondary evaluation-entry">查看效果评估</button>
-<details id="knowledgeDetails"><summary>导入资料与产品</summary>
-<label>产品 ID</label><input id="newId" placeholder="例如 demo_product">
-<label>产品名称</label><input id="newName" placeholder="例如 演示产品">
-<button id="addProduct" style="margin-top:9px">添加产品</button>
-<label>类别</label><input id="category" value="产品说明">
-<label>上传资料</label><input id="file" type="file" accept=".txt,.md,.html,.htm,.docx,.pdf">
-<button id="upload" style="margin-top:9px">导入到当前产品/版本</button>
-<p id="adminMsg" class="hint"></p><ul id="docs"></ul>
-</details>
-<details id="trainingDetails"><summary>整理产品话术</summary>
-<button id="trainFaqs" type="button" style="width:100%;margin:12px 0 4px">从资料生成问答</button>
-<p id="trainMsg" class="hint" aria-live="polite">按需整理已有资料，只补充有原文依据的问答。</p>
-<p id="trainedScope" class="hint"></p><ul id="trainedFaqs" class="trained-list"></ul>
-</details>
-<details id="promptDetails"><summary>模型 Prompt 配置</summary>
-<p class="hint">用于模型根据检索片段生成回答。FAQ 直接返回已存答案，不经过模型。</p>
-<label for="promptBody">系统提示词</label><textarea id="promptBody" class="prompt-editor" maxlength="10000" spellcheck="false" placeholder="正在加载默认 Prompt…"></textarea>
-<div class="prompt-actions"><button id="savePrompt" type="button">保存配置</button><button id="resetPrompt" type="button" class="secondary">恢复默认</button></div>
-<p id="promptStatus" class="hint" aria-live="polite"></p>
-</details>
+<button id="openConfig" class="secondary evaluation-entry" type="button">文件清洗与 Prompt 配置 →</button>
+<details id="knowledgeDetails"><summary>当前产品资料</summary><ul id="docs"></ul></details>
 <details id="gapsDetails"><summary>补充问答与知识缺口 <span id="gapCount"></span></summary>
 <button id="manualFaqButton" type="button" style="width:100%;margin:12px 0 8px">+ 手动补充问答</button>
 <ul id="unanswered"></ul>
@@ -76,6 +61,49 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 <p class="hint">解决率 = 有知识依据的回答数 / 总提问数。</p><button id="refresh" class="secondary">刷新统计</button></details>
 <details id="handoffsDetails"><summary>转人工记录</summary><ul id="handoffs"></ul></details>
 </aside>
+</main>
+<main id="configPage" class="config-page" hidden>
+<div class="config-heading"><div><h2>知识配置</h2><p class="hint">先清洗和核对资料，再将有依据的问答用于检索。</p></div><button id="backChat" type="button" class="secondary">返回问答</button></div>
+<div class="config-grid"><section class="card">
+<h2>文件清洗与 QA 问答分段</h2>
+<ol class="steps" aria-label="资料处理进度"><li id="step1" aria-current="step">1 · 导入</li><li id="step2">2 · QA 问答分段</li><li id="step3">3 · 完成</li></ol>
+<p id="flowMsg" class="hint" role="status" aria-live="polite">选择资料并生成预览，确认前不会写入知识库。</p>
+<div id="importStep">
+<fieldset id="importFields">
+<div class="row"><div><label for="configProduct">目标产品</label><select id="configProduct"></select></div><div><label for="configVersion">版本</label><input id="configVersion" value="1.0" maxlength="40" list="configVersions"><datalist id="configVersions"></datalist></div></div>
+<label for="category">类别</label><input id="category" value="产品说明" maxlength="80">
+<label for="file">导入文件（最大 5 MB）</label><input id="file" type="file" accept=".txt,.md,.html,.htm,.docx,.pdf">
+<p class="hint">支持 TXT、Markdown、HTML、DOCX 和文字 PDF。扫描件需先转成文字。</p>
+<div class="clean-options"><label><input id="removePages" type="checkbox" checked>过滤页码行</label><label><input id="removeDuplicates" type="checkbox" checked>移除相邻重复行</label></div>
+<p class="hint">自动规范全角字符、换行和空白，保留产品数字与单位。</p>
+<div class="row"><div><label for="chunkSize">片段长度（字）</label><input id="chunkSize" type="number" min="120" max="2000" value="360"></div><div><label for="chunkOverlap">长片段重叠（字）</label><input id="chunkOverlap" type="number" min="0" value="50"></div></div>
+</fieldset>
+<button id="upload" type="button" class="flow-action">清洗并生成 QA 预览 →</button>
+<details><summary>添加产品</summary><label for="newId">产品 ID</label><input id="newId" placeholder="例如 demo_product"><label for="newName">产品名称</label><input id="newName" placeholder="例如 演示产品"><button id="addProduct" type="button" class="flow-action">添加产品</button><p id="adminMsg" class="hint" role="status"></p></details>
+</div>
+<div id="reviewStep" hidden>
+<p id="reviewScope" class="scope-banner"></p><p id="cleanReport" class="hint"></p>
+<p class="hint">核对答案与原文，取消不合适的 QA，也可调整问题表达。答案保留来源原句。检索片段将作为未匹配 QA 时的补充依据。</p>
+<fieldset id="reviewFields"><div id="qaPreview" class="qa-preview"></div></fieldset>
+<details><summary id="chunkSummary">查看检索片段</summary><ol id="chunkPreview" class="chunk-preview"></ol></details>
+<details><summary>查看清洗后原文</summary><pre id="cleanedText" class="source-preview"></pre></details>
+<div class="row flow-action"><button id="backImport" type="button" class="secondary">返回调整</button><button id="commitImport" type="button">确认入库并完成</button></div>
+</div>
+<div id="completeStep" hidden><h3>资料已入库</h3><p id="importResult"></p><p class="hint">可以返回问答测试实际问法，通过反馈和效果评估检查准确度。</p><div class="row"><button id="testImported" type="button">测试问答</button><button id="nextImport" type="button" class="secondary">继续导入</button></div></div>
+<details><summary>目标产品已有资料</summary><ul id="configDocs"></ul></details>
+</section><section class="card prompt-card"><details id="promptDetails" open><summary>模型 Prompt 配置</summary>
+<p class="hint">用于模型根据检索片段生成回答。FAQ 直接返回已存答案，不经过模型。</p>
+<label for="promptBody">系统提示词</label><textarea id="promptBody" class="prompt-editor" maxlength="10000" spellcheck="false" placeholder="正在加载默认 Prompt…"></textarea>
+<div class="prompt-actions"><button id="savePrompt" type="button">保存配置</button><button id="resetPrompt" type="button" class="secondary">恢复默认</button></div>
+<p id="promptStatus" class="hint" aria-live="polite"></p>
+</details>
+</section></div>
+<section class="card existing-faqs"><details id="trainingDetails" open><summary>整理产品话术</summary>
+<button id="trainFaqs" type="button" style="width:100%;margin:12px 0 4px">从资料生成问答</button>
+<p id="trainMsg" class="hint" aria-live="polite">按需整理已有资料，只补充有原文依据的问答。</p>
+<p id="trainedScope" class="hint"></p><ul id="trainedFaqs" class="trained-list"></ul>
+</details>
+</section>
 </main>
 <dialog id="evaluationPanel" class="evaluation" aria-labelledby="evaluationTitle">
 <div class="evaluation-head"><h2 id="evaluationTitle">效果评估</h2><button id="closeEvaluation" type="button" class="secondary">关闭</button></div>
@@ -150,12 +178,12 @@ function showProductList(items,title,inChooser=true){
     const list=node('ol','', 'product-list');
     for(const p of items){const li=node('li','');const b=node('button',p.name,'product-link');b.type='button';b.onclick=()=>selectProduct(p.id);li.append(b);list.append(li)}
     bubble.append(list);
-  }else bubble.append(node('div','还没有可咨询的产品，请在右侧“导入资料与产品”中添加产品和文档。'));
+  }else bubble.append(node('div','还没有可咨询的产品，请在“知识配置”中添加产品和文档。'));
   if(!inChooser)$('conversation').append(bubble);
 }
 async function featured(){
   const items=await api('/api/products/featured');
-  if(!items.length)$('knowledgeDetails').open=true;
+  if(!items.length)$('openConfig').textContent='添加产品与导入资料 →';
   const ranked=items.some(p=>p.consultation_count>0);
   showProductList(items,ranked?'欢迎！请选择下列热门产品开始问答（按咨询次数排序，最多 6 个）：':'欢迎！请选择下列已有知识库的产品开始问答：');
 }
@@ -196,12 +224,12 @@ async function loadFaqSuggestions(){
   $('conversation').append(panel);
 }
 async function loadTrainedFaqs(){
-  const id=$('product').value,version=$('version').value;
-  $('trainedScope').textContent=id&&version?`${$('product').selectedOptions[0].text} · ${version}`:'请先选择产品和版本。';
+  const id=$('configProduct').value,version=$('configVersion').value.trim();
+  $('trainedScope').textContent=id&&version?`${$('configProduct').selectedOptions[0].text} · ${version}`:'请先在知识配置中选择产品和版本。';
   if(!id||!version){$('trainedFaqs').replaceChildren();return}
   try{
     const faqs=await api('/api/faqs?product_id='+encodeURIComponent(id)+'&version='+encodeURIComponent(version)+'&limit=500');
-    if(id!==$('product').value||version!==$('version').value)return;
+    if(id!==$('configProduct').value||version!==$('configVersion').value.trim())return;
     $('trainedFaqs').replaceChildren(...(faqs.length?faqs.map(f=>{const li=node('li');li.append(node('strong',f.question),node('span',f.answer),node('small',`${f.source} · ${f.kind==='manual'?'人工补充':f.kind==='trained'?'自我训练':'资料提取'}`));return li}):[node('li','当前范围暂无问答。','hint')]));
   }catch(error){$('trainedFaqs').replaceChildren(node('li',error.message,'error'))}
 }
@@ -301,16 +329,17 @@ async function openGap(gap=null){
 }
 $('manualFaqButton').onclick=()=>openGap();
 $('trainFaqs').onclick=async()=>{
+  if(!$('configProduct').value||!$('configVersion').value.trim()){$('trainMsg').textContent='请先选择目标产品并填写版本，再整理该范围的已有资料。';return}
   const button=$('trainFaqs');button.disabled=true;$('trainMsg').textContent='正在整理已有产品资料…';
   try{
-    const scope=$('product').value&&$('version').value?'?product_id='+encodeURIComponent($('product').value)+'&version='+encodeURIComponent($('version').value):'';
+    const scope=$('configProduct').value&&$('configVersion').value?'?product_id='+encodeURIComponent($('configProduct').value)+'&version='+encodeURIComponent($('configVersion').value.trim()):'';
     const result=await api('/api/faqs/train'+scope,{method:'POST'});
-    if(!result.documents_scanned){$('trainMsg').textContent='当前范围没有可整理的资料。请先导入文档，或检查左侧产品和版本。'}
+    if(!result.documents_scanned){$('trainMsg').textContent='当前范围没有可整理的资料。请先导入文档，或检查目标产品和版本。'}
     else if(result.faqs_added){$('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，新增 ${result.faqs_added} 条问答；当前范围共 ${result.faqs_total} 条。`}
     else if(result.already_present){$('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，可生成的 ${result.already_present} 条问答已存在，新增 0 条；当前范围共 ${result.faqs_total} 条。重复整理不会复制相同问答。`}
     else{$('trainMsg').textContent=`已扫描 ${result.documents_scanned} 份资料，未识别出新的有原文依据的问答。${result.empty_documents?'其中 '+result.empty_documents+' 份资料无法还原文字。':''}请核对原文或手动补充问答。`}
-    await refresh();await loadTrainedFaqs();await docs();
-    if($('product').value&&$('version').value)await loadFaqSuggestions();
+    await refresh();await loadTrainedFaqs();await configDocs();
+    await loadFaqSuggestions();
   }catch(error){$('trainMsg').textContent='整理失败：'+error.message}
   finally{button.disabled=false}
 };
@@ -371,8 +400,80 @@ $('version').onchange=()=>{sessionId=null;$('currentScope').textContent=scopeLab
 $('refresh').onclick=refresh;
 $('searchButton').onclick=()=>findProduct().catch(e=>{$('conversation').append(node('div','查找失败，请刷新页面后重试。','error'))});
 $('productSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('searchButton').click()}};
-$('addProduct').onclick=async()=>{try{await api('/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:$('newId').value,name:$('newName').value})});$('adminMsg').textContent='产品已添加';await products();selectProduct($('newId').value)}catch(e){$('adminMsg').textContent=e.message}};
-$('upload').onclick=async()=>{const f=$('file').files[0];if(!$('product').value){$('adminMsg').textContent='请先选择产品';return}if(!f){$('adminMsg').textContent='请先选择文件';return}const form=new FormData();form.append('product_id',$('product').value);form.append('version',$('version').value||'1.0');form.append('category',$('category').value);form.append('title',f.name);form.append('file',f);try{const r=await api('/api/documents',{method:'POST',body:form});$('adminMsg').textContent=`导入成功：${r.chunks} 个片段、${r.faqs} 个常见问题；${cleaningSummary(r.cleaning)}`;await products();$('currentScope').textContent=scopeLabel();loadFaqSuggestions()}catch(e){$('adminMsg').textContent=e.message}};
+let importDraft=null,importBusy=false,completedImport=null;
+function setStep(step){
+  for(const [index,id] of ['importStep','reviewStep','completeStep'].entries()){
+    $(id).hidden=index+1!==step;
+    const marker=$('step'+(index+1));marker.classList.toggle('active',index+1===step);marker.classList.toggle('done',index+1<step);
+    if(index+1===step)marker.setAttribute('aria-current','step');else marker.removeAttribute('aria-current');
+  }
+}
+function flowMessage(text,error=false){$('flowMsg').className=error?'error':'hint';$('flowMsg').textContent=text}
+function setImportBusy(busy){importBusy=busy;for(const id of ['upload','commitImport','backImport','nextImport','importFields','reviewFields','addProduct'])$(id).disabled=busy}
+async function configDocs(){
+  const id=$('configProduct').value;if(!id){$('configDocs').replaceChildren();return}
+  const items=await api('/api/documents?product_id='+encodeURIComponent(id));
+  if(id!==$('configProduct').value)return;
+  $('configDocs').replaceChildren(...items.map(d=>node('li',`${d.title} · ${d.version} · ${d.chunks} 段 · ${d.faqs} 个 QA · ${cleaningSummary(d.cleaning_report)}`)));
+}
+function configVersions(){const raw=$('configProduct').selectedOptions[0]?.dataset.versions;const list=raw?JSON.parse(raw):[];$('configVersions').replaceChildren(...list.map(v=>new Option(v,v)))}
+async function configProducts(preferred){
+  const items=await api('/api/products');const current=preferred??$('configProduct').value;
+  $('configProduct').replaceChildren(new Option('请选择产品',''),...items.map(p=>{const o=new Option(p.name,p.id);o.dataset.versions=JSON.stringify(p.versions);return o}));
+  if(items.some(p=>p.id===current))$('configProduct').value=current;
+  configVersions();await Promise.all([configDocs(),loadTrainedFaqs()]);
+}
+function showPage(){const config=location.hash==='#configuration';$('chatPage').hidden=config;$('configPage').hidden=!config;$('chatNav').classList.toggle('secondary',config);$('configNav').classList.toggle('secondary',!config);$('chatNav').setAttribute('aria-current',config?'false':'page');$('configNav').setAttribute('aria-current',config?'page':'false');if(config&&!promptLoaded)loadPrompt()}
+for(const id of ['configNav','openConfig'])$(id).onclick=()=>{location.hash='configuration'};
+for(const id of ['chatNav','backChat'])$(id).onclick=()=>{location.hash='chat'};
+window.addEventListener('hashchange',showPage);
+$('configProduct').onchange=()=>{configVersions();const raw=$('configProduct').selectedOptions[0]?.dataset.versions;const list=raw?JSON.parse(raw):[];$('configVersion').value=list[0]||'1.0';configDocs().catch(e=>flowMessage(e.message,true));loadTrainedFaqs()};
+$('configVersion').onchange=loadTrainedFaqs;
+$('addProduct').onclick=async()=>{
+  const id=$('newId').value.trim();$('addProduct').disabled=true;
+  try{await api('/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,name:$('newName').value})});$('adminMsg').textContent='产品已添加';await products();await configProducts(id);$('configVersion').value='1.0'}catch(e){$('adminMsg').textContent=e.message}finally{$('addProduct').disabled=false}
+};
+function importForm(draft){const form=new FormData();for(const [key,value] of Object.entries(draft))form.append(key,value);return form}
+$('upload').onclick=async()=>{
+  if(importBusy)return;
+  const file=$('file').files[0],product=$('configProduct').value,version=$('configVersion').value.trim();
+  if(!product||!version||!file){flowMessage('请选择产品、填写版本并选择文件。',true);return}
+  if(file.size>5*1024*1024){flowMessage('文件不能超过 5 MB。',true);return}
+  const max_chars=Number($('chunkSize').value),overlap=Number($('chunkOverlap').value);
+  if(!Number.isInteger(max_chars)||max_chars<120||max_chars>2000||!Number.isInteger(overlap)||overlap<0||overlap>=Math.floor(max_chars/2)){flowMessage('片段长度须为 120–2000，重叠须小于片段长度的一半。',true);return}
+  const draft={product_id:product,version,category:$('category').value.trim()||'产品说明',title:file.name,file,remove_page_markers:$('removePages').checked,remove_duplicates:$('removeDuplicates').checked,max_chars,overlap};
+  setImportBusy(true);flowMessage('正在提取文字、清洗并生成 QA 分段…');
+  try{
+    const result=await api('/api/documents/preview',{method:'POST',body:importForm(draft)});importDraft=draft;
+    $('reviewScope').textContent=`${$('configProduct').selectedOptions[0].text} · ${version} · ${file.name}`;
+    $('cleanReport').textContent=`${cleaningSummary(result.cleaning)}；${result.chunks.length} 个检索片段，${result.faqs.length} 个候选 QA。`;
+    $('qaPreview').replaceChildren();
+    for(const [index,faq] of result.faqs.entries()){
+      const card=node('div','','qa-item'),label=node('label'),check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.index=index;label.append(check,document.createTextNode(`保留 QA ${index+1} · ${faq.category}`));
+      const question=document.createElement('input');question.value=faq.question;question.maxLength=500;question.setAttribute('aria-label',`QA ${index+1} 的问题`);question.className='qa-question';
+      card.append(label,question,node('p',faq.answer,'qa-answer'));$('qaPreview').append(card);
+    }
+    if(!result.faqs.length)$('qaPreview').append(node('p','未识别出有原文依据的 QA。仍可保存检索片段，完成后通过“手动补充问答”添加经核实的答案。','hint'));
+    $('chunkSummary').textContent=`查看 ${result.chunks.length} 个检索片段`;$('chunkPreview').replaceChildren(...result.chunks.map(c=>node('li',c)));$('cleanedText').textContent=result.text;
+    setStep(2);flowMessage('清洗预览已生成，请核对 QA 与片段后确认入库。');
+  }catch(e){flowMessage('处理失败：'+e.message,true)}finally{setImportBusy(false)}
+};
+$('backImport').onclick=()=>{importDraft=null;setStep(1);flowMessage('调整文件或参数后重新生成预览。')};
+$('commitImport').onclick=async()=>{
+  if(importBusy||!importDraft)return;
+  const selected=[];for(const card of $('qaPreview').querySelectorAll('.qa-item')){const check=card.querySelector('input[type=checkbox]');if(check.checked){const question=card.querySelector('.qa-question').value.trim();if(!question){flowMessage('保留的 QA 问题不能为空。',true);return}selected.push({index:Number(check.dataset.index),question})}}
+  setImportBusy(true);flowMessage('正在保存已核对的 QA 与检索片段…');
+  try{
+    const form=importForm(importDraft);form.append('review','true');form.append('selected_faqs',JSON.stringify(selected));
+    const result=await api('/api/documents',{method:'POST',body:form});completedImport={...importDraft};importDraft=null;
+    $('importResult').textContent=`${completedImport.title} · ${completedImport.version}：已保存 ${result.chunks} 个检索片段、${result.faqs} 个 QA。${cleaningSummary(result.cleaning)}。`;
+    setStep(3);flowMessage('导入完成，资料已可用于问答。');
+    await Promise.allSettled([products(),configProducts(),refresh(),featured()]);
+  }catch(e){flowMessage('保存失败：'+e.message+'；可再次点击确认入库。',true)}finally{setImportBusy(false)}
+};
+$('nextImport').onclick=()=>{completedImport=null;$('file').value='';setStep(1);flowMessage('选择下一份资料生成预览。')};
+$('testImported').onclick=()=>{if(!completedImport)return;selectProduct(completedImport.product_id);$('version').value=completedImport.version;sessionId=null;$('currentScope').textContent=scopeLabel();loadFaqSuggestions();location.hash='chat'};
+showPage();setStep(1);configProducts().catch(e=>flowMessage('配置加载失败：'+e.message,true));
 products().then(featured).then(refresh).catch(e=>{$('productChooserTitle').textContent='产品列表加载失败，请刷新页面后重试。';$('conversation').append(node('div',e.message,'error'))});
 </script>
 </body>

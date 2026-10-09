@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$ProjectRoot
+    [string]$ProjectRoot,
+    [switch]$SetupOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,7 +10,10 @@ $env:PYTHONUTF8 = '1'
 function Get-PythonInfo {
     param([string]$Executable, [string[]]$Prefix = @())
     try {
-        $output = & $Executable @Prefix -c 'import json,sys; print(json.dumps({"path":sys.executable,"major":sys.version_info.major,"minor":sys.version_info.minor,"version":sys.version.split()[0]}))' 2>$null
+        # Embedded double quotes are stripped by Windows PowerShell 5.1's
+        # native argument passing. Python single-quoted strings work on both
+        # Windows PowerShell and PowerShell 7.
+        $output = & $Executable @Prefix -c "import json,sys; print(json.dumps({'path':sys.executable,'major':sys.version_info.major,'minor':sys.version_info.minor,'version':sys.version.split()[0]}))" 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $output) { return $null }
         $info = @($output)[-1] | ConvertFrom-Json
         if ($info.major -ne 3 -or $info.minor -lt 9 -or -not $info.path) { return $null }
@@ -68,6 +72,26 @@ function Find-PythonCandidates {
         Add-PythonCandidate -Candidates $candidates -Seen $seen -Executable $launcher.Source -Prefix @('-3')
     }
 
+    # PEP 514 registrations also cover custom installation directories and
+    # installations that have neither a launcher nor a PATH entry.
+    foreach ($registryRoot in @('HKCU:\Software\Python', 'HKLM:\Software\Python',
+                                'HKLM:\Software\WOW6432Node\Python')) {
+        foreach ($company in @(Get-ChildItem -LiteralPath $registryRoot -ErrorAction SilentlyContinue)) {
+            foreach ($tag in @(Get-ChildItem -LiteralPath $company.PSPath -ErrorAction SilentlyContinue)) {
+                $installKey = Get-Item -LiteralPath (Join-Path $tag.PSPath 'InstallPath') -ErrorAction SilentlyContinue
+                if (-not $installKey) { continue }
+                $path = $installKey.GetValue('ExecutablePath')
+                if (-not $path) {
+                    $directory = $installKey.GetValue('')
+                    if ($directory) { $path = Join-Path $directory 'python.exe' }
+                }
+                if ($path -and (Test-Path -LiteralPath $path)) {
+                    Add-PythonCandidate -Candidates $candidates -Seen $seen -Executable $path
+                }
+            }
+        }
+    }
+
     foreach ($root in @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
         if (-not $root) { continue }
         $programs = if ($root -eq $env:LOCALAPPDATA) { Join-Path $root 'Programs\Python' } else { $root }
@@ -110,7 +134,7 @@ function Test-Pip {
 function Test-ProjectImports {
     param([string]$PythonExecutable)
     try {
-        & $PythonExecutable -c 'import fastapi, uvicorn, numpy, sklearn, pypdf; import importlib.metadata as m; m.version("python-multipart")' 2>$null | Out-Null
+        & $PythonExecutable -c "import fastapi, uvicorn, numpy, sklearn, pypdf; import importlib.metadata as m; m.version('python-multipart'); import app.core" 2>$null | Out-Null
         return ($LASTEXITCODE -eq 0)
     } catch {
         return $false
@@ -122,6 +146,9 @@ function Install-Dependencies {
     if (-not (Test-Pip -PythonExecutable $PythonExecutable)) {
         Invoke-Checked -Executable $PythonExecutable -Arguments @('-m', 'ensurepip', '--upgrade') -Step 'pip installation'
     }
+    # pip selects the newest release compatible with the selected Python.
+    # Upgrading also avoids wheel-tag and metadata issues with bundled old pip.
+    Invoke-Checked -Executable $PythonExecutable -Arguments @('-m', 'pip', 'install', '--disable-pip-version-check', '--upgrade', 'pip') -Step 'pip upgrade'
     Invoke-Checked -Executable $PythonExecutable -Arguments @('-m', 'pip', 'install', '--disable-pip-version-check', '--prefer-binary', '-r', 'requirements.txt') -Step 'Dependency installation'
     if (-not (Test-ProjectImports -PythonExecutable $PythonExecutable)) {
         Write-Host 'A package is installed but cannot be imported. Repairing dependencies...'
@@ -219,6 +246,11 @@ try {
     Write-Host "Environment ready with Python $($selected.version): $($selected.path)"
     Write-Host '[4/5] Preparing the database without replacing saved data...'
     Invoke-Checked -Executable $venvPython -Arguments @('seed.py', '--if-empty') -Step 'Database initialization'
+
+    if ($SetupOnly) {
+        Write-Host '[5/5] Setup complete; server startup was skipped.'
+        exit 0
+    }
 
     Write-Host '[5/5] Starting the local server...'
     Invoke-Checked -Executable $venvPython -Arguments @('run_server.py') -Step 'Server startup'

@@ -167,11 +167,11 @@ def split_text(text: str, max_chars=360, overlap=50):
 
     def emit(body):
         prefix = heading + '\n' if heading else ''
-        room = max(80, max_chars - len(prefix))
+        room = max(1, max_chars - len(prefix))
         if len(body) <= room:
             chunks.append(prefix + body)
         else:
-            step = max(1, room - overlap)
+            step = max(1, room - min(overlap, room // 2))
             for start in range(0, len(body), step):
                 chunks.append(prefix + body[start:start + room])
 
@@ -199,9 +199,12 @@ def split_text(text: str, max_chars=360, overlap=50):
     return [c for c in chunks if c.strip()]
 
 
-def add_document(product_id, version, category, title, filename, content):
+def prepare_document(product_id, version, filename, content, *, remove_page_markers=True,
+                     remove_duplicates=True, max_chars=360, overlap=50, include_training=False):
     if not version.strip():
         raise ValueError('版本不能为空')
+    if not 120 <= max_chars <= 2000 or not 0 <= overlap < max_chars // 2:
+        raise ValueError('片段长度须为 120–2000，重叠须小于片段长度的一半')
     if len(content) > 5 * 1024 * 1024:
         raise ValueError('文件不能超过 5 MB')
     with connect() as db:
@@ -209,14 +212,54 @@ def add_document(product_id, version, category, title, filename, content):
         if not product:
             raise ValueError('产品不存在')
     raw_text = parse_document(filename, content)
-    text, cleaning_report = clean_document(raw_text)
-    faqs = extract_faqs(text, product['name'])
-    chunks = split_text(text)
+    text, cleaning_report = clean_document(raw_text, remove_page_markers=remove_page_markers,
+                                          remove_duplicates=remove_duplicates)
+    candidates = extract_faqs(text, product['name'])
+    if include_training:
+        candidates += extract_training_faqs(text, product['name'])
+    faqs, seen = [], set()
+    for faq in candidates:
+        key = (faq['question'], faq['answer'])
+        if key not in seen:
+            seen.add(key)
+            faqs.append(faq)
+    chunks = split_text(text, max_chars, overlap)
     for faq in faqs:
         if not any(faq['answer'] in chunk for chunk in chunks):
-            chunks.extend(split_text(faq['answer']))
+            chunks.extend(split_text(faq['answer'], max_chars, overlap))
+    chunks = list(dict.fromkeys(chunks))
     if not chunks:
         raise ValueError('文档中没有可索引的文字')
+    cleaning_report['settings'] = {'remove_page_markers': remove_page_markers,
+                                  'remove_duplicates': remove_duplicates,
+                                  'max_chars': max_chars, 'overlap': overlap}
+    return {'text': text, 'cleaning': cleaning_report, 'chunks': chunks, 'faqs': faqs,
+            'product_name': product['name']}
+
+
+def add_document(product_id, version, category, title, filename, content, *,
+                 selected_faqs=None, **settings):
+    prepared = prepare_document(product_id, version, filename, content, **settings)
+    text, cleaning_report = prepared['text'], prepared['cleaning']
+    chunks, faqs = prepared['chunks'], prepared['faqs']
+    product = {'name': prepared['product_name']}
+    if selected_faqs is not None:
+        # Only source-backed answers from this preview can be indexed. Operators
+        # may refine the question or omit a candidate, but cannot invent an answer.
+        selected, seen = [], set()
+        if not isinstance(selected_faqs, list) or len(selected_faqs) > len(faqs):
+            raise ValueError('QA 选择格式无效，请重新预览')
+        for item in selected_faqs:
+            if not isinstance(item, dict):
+                raise ValueError('QA 选择格式无效')
+            index = item.get('index')
+            question = item.get('question', '')
+            if (type(index) is not int or not 0 <= index < len(faqs) or index in seen
+                    or not isinstance(question, str) or not 1 <= len(question.strip()) <= 500):
+                raise ValueError('QA 问题不能为空、不能超过 500 字，且不得重复选择')
+            seen.add(index)
+            selected.append({**faqs[index], 'question': question.strip()})
+        faqs = selected
     # Index the factual body; keep the heading in stored text for the answer.
     vectors = VECTORIZER.transform([c.split('\n', 1)[-1] for c in chunks]).astype(np.float32).toarray()
     doc_id = uuid.uuid4().hex

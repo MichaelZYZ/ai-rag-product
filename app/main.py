@@ -82,16 +82,48 @@ def create_product(data: ProductInput):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+async def document_request(product_id, version, category, title, file,
+                           remove_page_markers, remove_duplicates, max_chars, overlap,
+                           selected_faqs=None, preview=False, review=False):
+    try:
+        content = await file.read(5 * 1024 * 1024 + 1)
+        settings = dict(remove_page_markers=remove_page_markers,
+                        remove_duplicates=remove_duplicates, max_chars=max_chars,
+                        overlap=overlap, include_training=review or preview)
+        if preview:
+            result = core.prepare_document(product_id, version, file.filename, content, **settings)
+            result.pop('product_name')
+            return result
+        selection = json.loads(selected_faqs) if selected_faqs is not None else None
+        return core.add_document(product_id, version.strip(), category.strip(),
+                                 title.strip() or file.filename, file.filename, content,
+                                 selected_faqs=selection, **settings)
+    except (ValueError, UnicodeError, zipfile.BadZipFile, ImportError, KeyError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post('/api/documents/preview')
+async def preview_document(product_id: str = Form(...), version: str = Form(...),
+                           file: UploadFile = File(...),
+                           remove_page_markers: bool = Form(True),
+                           remove_duplicates: bool = Form(True),
+                           max_chars: int = Form(360), overlap: int = Form(50)):
+    return await document_request(product_id, version, '', '', file,
+                                  remove_page_markers, remove_duplicates, max_chars, overlap,
+                                  preview=True)
+
+
 @app.post('/api/documents')
 async def upload_document(product_id: str = Form(...), version: str = Form(...),
                           category: str = Form('产品说明'), title: str = Form(''),
-                          file: UploadFile = File(...)):
-    try:
-        content = await file.read(5 * 1024 * 1024 + 1)
-        return core.add_document(product_id, version.strip(), category.strip(),
-                                 title.strip() or file.filename, file.filename, content)
-    except (ValueError, UnicodeError, zipfile.BadZipFile, ImportError, KeyError) as e:
-        raise HTTPException(400, str(e))
+                          file: UploadFile = File(...),
+                          remove_page_markers: bool = Form(True),
+                          remove_duplicates: bool = Form(True),
+                          max_chars: int = Form(360), overlap: int = Form(50),
+                          selected_faqs: Optional[str] = Form(None), review: bool = Form(False)):
+    return await document_request(product_id, version, category, title, file,
+                                  remove_page_markers, remove_duplicates, max_chars, overlap,
+                                  selected_faqs, review=review)
 
 @app.get('/api/documents')
 def documents(product_id: Optional[str] = None):
