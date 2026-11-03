@@ -37,6 +37,7 @@ def run_cases(cases):
                                for s in evidence[:k]) if expected else None for k in (1, 3, 5)}
             row = {**case, 'actual_status': result['status'], 'actual_answer': result['answer'],
                    'generation_mode': result['generation_mode'], 'generation_error': result['generation_error'],
+                   'answer_source': result['answer_source'], 'model_info': result['model_info'],
                    'rewritten_question': result['rewritten_question'], 'sources': result['sources'],
                    'retrieved': evidence, 'status_ok': bool(status_ok), 'answer_keyword_ok': bool(answer_ok),
                    'hit_at_k': hits, 'passed': bool(status_ok and answer_ok),

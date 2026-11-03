@@ -75,7 +75,7 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 <label for="file">导入文件（最大 5 MB）</label><input id="file" type="file" accept=".txt,.md,.html,.htm,.docx,.pdf">
 <p class="hint">支持 TXT、Markdown、HTML、DOCX 和文字 PDF。扫描件需先转成文字。</p>
 <div class="clean-options"><label><input id="removePages" type="checkbox" checked>过滤页码行</label><label><input id="removeDuplicates" type="checkbox" checked>移除相邻重复行</label></div>
-<p class="hint">自动规范全角字符、换行和空白，保留产品数字与单位。</p>
+<p class="hint">自动清除 Markdown 加粗、代码围栏、列表等排版标记，将表格转成带字段名的文字；保留标题结构、数值、单位、否定和操作顺序。</p>
 <div class="row"><div><label for="chunkSize">片段长度（字）</label><input id="chunkSize" type="number" min="120" max="2000" value="360"></div><div><label for="chunkOverlap">长片段重叠（字）</label><input id="chunkOverlap" type="number" min="0" value="50"></div></div>
 </fieldset>
 <button id="upload" type="button" class="flow-action">清洗并生成 QA 预览 →</button>
@@ -83,7 +83,7 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 </div>
 <div id="reviewStep" hidden>
 <p id="reviewScope" class="scope-banner"></p><p id="cleanReport" class="hint"></p>
-<p class="hint">核对答案与原文，取消不合适的 QA，也可调整问题表达。答案保留来源原句。检索片段将作为未匹配 QA 时的补充依据。</p>
+<p class="hint">核对章节、参数与操作问答，以及其关联问法；可调整问题表达或取消不合适的 QA。答案来自清洗后的资料，相关问法不会补造产品能力。</p>
 <fieldset id="reviewFields"><div id="qaPreview" class="qa-preview"></div></fieldset>
 <details><summary id="chunkSummary">查看检索片段</summary><ol id="chunkPreview" class="chunk-preview"></ol></details>
 <details><summary>查看清洗后原文</summary><pre id="cleanedText" class="source-preview"></pre></details>
@@ -93,6 +93,7 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 <details><summary>目标产品已有资料</summary><ul id="configDocs"></ul></details>
 </section><section class="card prompt-card"><details open><summary>检索与生成状态</summary>
 <p id="ragStatus" class="hint">正在读取配置…</p>
+<p id="ragDependencyHelp" class="hint" hidden></p>
 <button id="reindexSemantic" class="secondary" type="button">补建语义向量索引</button>
 <p id="ragIndexResult" class="hint" aria-live="polite">本地模型首次运行需要下载；已建索引可复用。</p>
 </details></section><section class="card prompt-card"><details open><summary>免费 API 与模型选择</summary>
@@ -105,6 +106,8 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 <p class="hint"><span id="llmProviderNote"></span> <a id="llmKeyLink" target="_blank" rel="noopener noreferrer">获取 API Key ↗</a></p>
 <label for="llmApiKey">API Key（保存在本机，不回显）</label><input id="llmApiKey" type="password" maxlength="4096" autocomplete="new-password" placeholder="填入该服务商的 Key；留空保留已保存的 Key">
 <label for="llmAnswerMode">回答方式</label><select id="llmAnswerMode"><option value="llm">模型生成（失败时明确提示）</option><option value="auto">自动（优先 FAQ，模型不可用回退原文）</option><option value="extractive">仅返回资料原文</option></select>
+<label class="hint"><input id="llmFallbackEnabled" type="checkbox" checked style="width:auto">知识库回答不了时，调用当前模型提供通用参考答案</label>
+<p class="hint">外部参考会显示来源、请求模型和实际模型，不作为已验证的产品资料；“仅返回资料原文”模式不调用外部模型。</p>
 <div class="prompt-actions"><button id="saveLLM" type="button">保存配置</button><button id="testLLM" type="button" class="secondary">保存并测试连接</button></div>
 <button id="resetLLM" type="button" class="secondary" style="width:100%;margin-top:8px">清除本机配置与密钥</button>
 <p id="llmConfigStatus" class="hint" aria-live="polite">默认选择 OpenRouter 免费路由。需自备服务商 API Key；保存后生效。连接测试只发送一条简短测试消息。</p>
@@ -150,6 +153,7 @@ function node(tag,text,cls){const x=document.createElement(tag);x.textContent=te
 function scoreLabel(value){const n=Number(value);return Number.isFinite(n)?Math.round(n*100)+'%':'—'}
 function answerBubble(result){
   const bubble=node('div','', 'bubble bot answer-bubble');
+  if(result.answer_source){const info=result.model_info;let provenance='来源：'+result.answer_source.label;if(info)provenance+=' · '+info.provider_name+' · '+(info.actual_model?'实际模型：'+info.actual_model:'请求模型：'+info.requested_model+'（服务未返回实际模型标识）');bubble.append(node('div',provenance,'hint'))}
   bubble.append(node('div',result.display_answer||result.answer,'answer-text'));
   const citation=node('div','', 'citation');
   const trigger=node('button','!','citation-trigger');trigger.type='button';
@@ -160,7 +164,9 @@ function answerBubble(result){
   trigger.setAttribute('aria-controls',panel.id);
   const sources=Array.isArray(result.sources)?result.sources:[];
   panel.append(node('strong','知识库来源与相关度'));
-  if(result.generation_mode){const labels={faq:'知识库问答',extractive:'资料原文',llm:'模型生成',rule:'规则处理',error:'模型服务不可用'};panel.append(node('div','回答方式：'+(labels[result.generation_mode]||result.generation_mode)))}
+  if(result.evidence_match==='product_introduction'&&result.answer_source?.type!=='external_model')panel.append(node('div','本次引用：当前产品和版本的介绍资料'));
+  if(result.generation_mode){const labels={faq:'知识库问答',extractive:'资料原文',llm:'根据资料生成',llm_external:'外部模型通用参考',rule:'规则处理',error:'模型服务不可用'};panel.append(node('div','回答方式：'+(labels[result.generation_mode]||result.generation_mode)))}
+  if(result.model_info){panel.append(node('div','服务商：'+result.model_info.provider_name));panel.append(node('div','请求模型：'+result.model_info.requested_model));panel.append(node('div','实际模型：'+(result.model_info.actual_model||'服务未返回实际标识')))}
   if(sources.length){
     for(const source of sources){
       const item=node('div','', 'citation-source');
@@ -170,6 +176,7 @@ function answerBubble(result){
   }else panel.append(node('div','本条回复未引用知识库资料。'));
   trigger.onclick=()=>{const open=!citation.classList.contains('is-open');citation.classList.toggle('is-open',open);trigger.setAttribute('aria-expanded',String(open))};
   citation.append(trigger,panel);bubble.append(citation);
+  if(result.knowledge_gap){const supplement=node('button',result.status==='external_answer'?'补充经核实的知识库答案':'手动补充这个问题','secondary');supplement.type='button';supplement.onclick=()=>openGap(result.knowledge_gap);bubble.append(supplement)}
   if(Array.isArray(result.suggested_questions)&&result.suggested_questions.length){
     const followups=node('div','', 'followups');followups.append(node('span','还可以问：'));
     for(const question of result.suggested_questions){const button=node('button',question);button.type='button';button.onclick=()=>{$('question').value=question;send()};followups.append(button)}
@@ -229,7 +236,7 @@ async function products(){
   docs();loadTrainedFaqs();
 }
 function versions(){const opt=$('product').selectedOptions[0];const list=opt&&opt.dataset.versions?JSON.parse(opt.dataset.versions):[];$('version').replaceChildren(...list.map(v=>new Option(v,v)));if(!list.length)$('version').append(new Option('暂无版本',''))}
-function cleaningSummary(c){if(c?.manual)return '人工问答补充';if(!c||!c.input_lines)return '旧文档，请重新上传以应用清洗';return `清洗 ${c.input_lines}→${c.output_lines} 行；空行 ${c.empty_lines_removed}、页码 ${c.page_markers_removed}、相邻重复 ${c.adjacent_duplicates_removed}`}
+function cleaningSummary(c){if(c?.manual)return '人工问答补充';if(!c||!c.input_lines)return '旧文档，请重新上传以应用清洗';const markup='markup_lines_cleaned' in c?`排版清理 ${c.markup_lines_cleaned} 行，表格转写 ${c.table_rows_converted||0} 行`:'旧版清洗，重新导入后应用排版过滤';return `清洗 ${c.input_lines}→${c.output_lines} 行；空行 ${c.empty_lines_removed}、页码 ${c.page_markers_removed}、相邻重复 ${c.adjacent_duplicates_removed}；${markup}`}
 async function docs(){const id=$('product').value;if(!id){$('docs').replaceChildren();return}const items=await api('/api/documents?product_id='+encodeURIComponent(id));$('docs').replaceChildren(...items.map(d=>node('li',`${d.title} · ${d.version} · ${d.chunks} 段 · ${d.faqs} 个常见问题 · ${cleaningSummary(d.cleaning_report)}`)))}
 async function loadFaqSuggestions(){
   const id=$('product').value,version=$('version').value;if(!id||!version)return;
@@ -252,9 +259,9 @@ async function loadTrainedFaqs(){
   }catch(error){$('trainedFaqs').replaceChildren(node('li',error.message,'error'))}
 }
 async function refresh(){
-  const s=await api('/api/stats');$('stats').replaceChildren(...[['提问',s.questions],['已回答',s.answered],['有帮助',s.feedback_positive],['没帮助',s.feedback_negative],['自动问答',s.auto_faqs],['待补充',s.open_gap_count],['转人工',s.handoffs],['解决率',Math.round(s.resolution_rate*100)+'%']].map(([k,v])=>{const n=node('div','', 'stat');n.append(node('span',k),node('strong',v));return n}));
+  const s=await api('/api/stats');$('stats').replaceChildren(...[['提问',s.questions],['知识库回答',s.answered],['外部参考',s.external_answers||0],['有帮助',s.feedback_positive],['没帮助',s.feedback_negative],['自动问答',s.auto_faqs],['待补充',s.open_gap_count],['转人工',s.handoffs],['解决率',Math.round(s.resolution_rate*100)+'%']].map(([k,v])=>{const n=node('div','', 'stat');n.append(node('span',k),node('strong',v));return n}));
   $('gapCount').textContent=s.open_gap_count?`(${s.open_gap_count})`:'';
-  $('chart').replaceChildren(...[['有依据回答',s.answered],['转人工',s.handoffs],['资料不足',s.unanswered]].flatMap(([label,value])=>{const caption=node('div',`${label} ${value}`,'barlabel');const bar=node('div','', 'bar');const fill=node('span','');fill.style.width=(s.questions?value/s.questions*100:0)+'%';bar.append(fill);return [caption,bar]}));
+  $('chart').replaceChildren(...[['知识库回答',s.answered],['外部参考',s.external_answers||0],['转人工',s.handoffs],['资料不足',s.unanswered]].flatMap(([label,value])=>{const caption=node('div',`${label} ${value}`,'barlabel');const bar=node('div','', 'bar');const fill=node('span','');fill.style.width=(s.questions?value/s.questions*100:0)+'%';bar.append(fill);return [caption,bar]}));
   $('unanswered').replaceChildren(...(s.top_unanswered.length?s.top_unanswered.map(x=>{const li=node('li','', 'gap-item');li.append(node('span',x.question),node('small',`${x.product_name}${x.version?' · '+x.version:''} · ${x.count} 次`));const b=node('button','+ 补充答案','secondary');b.type='button';b.onclick=()=>openGap(x);li.append(b);return li}):[node('li','暂无未解决的知识缺口。','hint')]));const h=await api('/api/handoffs');$('handoffs').replaceChildren(...h.slice(0,5).map(x=>node('li',x.summary)));
 }
 const evalStatusNames={answered:'有依据回答',no_answer:'资料不足',handoff:'转人工',other:'其他'};
@@ -364,7 +371,7 @@ $('trainFaqs').onclick=async()=>{
 function showPromptConfig(config,message=''){
   $('promptBody').value=config.prompt;
   const source=config.source==='custom'?'自定义配置':'默认配置';
-  const model=config.model_enabled?'模型已配置，新回答将使用此 Prompt。':'尚未配置模型；保存后会在接入模型时生效。';
+  const model=config.model_enabled?'模型已配置，基于知识库资料生成时使用此 Prompt；外部参考使用独立的通用回答规则。':'尚未配置模型；保存后会在接入模型时生效。';
   $('promptStatus').className='hint';$('promptStatus').textContent=(message?message+' ':'')+source+'。'+model;
   promptLoaded=true;
 }
@@ -392,9 +399,11 @@ $('gapForm').onsubmit=async e=>{
   const save=e.currentTarget.querySelector('button[type=submit]');save.disabled=true;$('gapMsg').textContent='';
   try{
     const path=currentGapId===null?'/api/faqs/manual':'/api/gaps/'+currentGapId+'/answer';
-    await api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:$('gapProduct').value,version:$('gapVersion').value,question:$('gapQuestion').value,answer:$('gapAnswer').value})});
+    const saved=await api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:$('gapProduct').value,version:$('gapVersion').value,question:$('gapQuestion').value,answer:$('gapAnswer').value})});
+    const savedQuestion=$('gapQuestion').value;
     $('gapDialog').close();currentGapId=null;await refresh();await products();await featured();
     if($('product').value===$('gapProduct').value&&$('version').value===$('gapVersion').value){loadFaqSuggestions();loadTrainedFaqs()}
+    const notice=node('div','补充已保存，后续回答可引用这条人工资料。','bubble bot'),retry=node('button','重新提问','secondary');retry.type='button';retry.onclick=()=>{selectProduct(saved.product_id);$('version').value=saved.version;sessionId=null;$('currentScope').textContent=scopeLabel();loadFaqSuggestions();$('question').value=savedQuestion;send()};notice.append(retry);$('conversation').append(notice);
   }catch(err){$('gapMsg').textContent=err.message}finally{save.disabled=false}
 };
 async function send(){
@@ -406,7 +415,7 @@ async function send(){
     }
     box.append(answerBubble(x));
     if(x.matched_products&&x.matched_products.length)showProductList(x.matched_products,'点击产品名称开始问答：',false);
-    if(x.status==='answered')box.append(feedbackControls(x));
+    if(x.status==='answered'||x.status==='external_answer')box.append(feedbackControls(x));
     await refresh();
   }catch(e){box.append(node('div',e.message,'error'))}$('messages').scrollTop=$('messages').scrollHeight;
 }
@@ -469,7 +478,9 @@ $('upload').onclick=async()=>{
     for(const [index,faq] of result.faqs.entries()){
       const card=node('div','','qa-item'),label=node('label'),check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.index=index;label.append(check,document.createTextNode(`保留 QA ${index+1} · ${faq.category}`));
       const question=document.createElement('input');question.value=faq.question;question.maxLength=500;question.setAttribute('aria-label',`QA ${index+1} 的问题`);question.className='qa-question';
-      card.append(label,question,node('p',faq.answer,'qa-answer'));$('qaPreview').append(card);
+      card.append(label,question,node('p',faq.answer,'qa-answer'));
+      if(faq.related_questions?.length)card.append(node('p','关联问法（修改主问题后会重新生成）：'+faq.related_questions.join('；'),'hint'));
+      $('qaPreview').append(card);
     }
     if(!result.faqs.length)$('qaPreview').append(node('p','未识别出有原文依据的 QA。仍可保存检索片段，完成后通过“手动补充问答”添加经核实的答案。','hint'));
     $('chunkSummary').textContent=`查看 ${result.chunks.length} 个检索片段`;$('chunkPreview').replaceChildren(...result.chunks.map(c=>node('li',c)));$('cleanedText').textContent=result.text;
@@ -491,7 +502,7 @@ $('commitImport').onclick=async()=>{
 };
 $('nextImport').onclick=()=>{completedImport=null;$('file').value='';setStep(1);flowMessage('选择下一份资料生成预览。')};
 $('testImported').onclick=()=>{if(!completedImport)return;selectProduct(completedImport.product_id);$('version').value=completedImport.version;sessionId=null;$('currentScope').textContent=scopeLabel();loadFaqSuggestions();location.hash='chat'};
-async function loadRagStatus(){try{const r=await api('/api/rag/status');$('ragStatus').textContent=`检索：${r.retriever==='semantic'?'语义向量 + FAISS':'字符检索基线'}；回答模式：${r.answer_mode}；模型服务：${r.llm_configured?'已配置（需实际调用验证）':'未配置'}。当前模型已索引 ${r.indexed_chunks}/${r.chunks} 个片段。`;}catch(e){$('ragStatus').textContent='状态读取失败：'+e.message}}
+async function loadRagStatus(){try{const r=await api('/api/rag/status');$('ragStatus').textContent=`检索：${r.retriever==='semantic'?'语义向量 + FAISS':'字符检索基线'}；回答模式：${r.answer_mode}；模型服务：${r.llm_configured?'已配置（需实际调用验证）':'未配置'}。当前模型已索引 ${r.indexed_chunks}/${r.chunks} 个片段。`;const missing=r.missing_dependencies||[];$('ragDependencyHelp').hidden=!missing.length;$('ragDependencyHelp').textContent=missing.length?'语义检索尚缺依赖：'+missing.map(d=>d.package).join('、')+'。请在项目目录执行 '+r.install_command+'，完成后重启服务。':'';}catch(e){$('ragStatus').textContent='状态读取失败：'+e.message}}
 let llmProviders=[],savedLLMConfig=null;
 function renderLLMProvider(providerId,modelId=''){
   const provider=llmProviders.find(p=>p.id===providerId);if(!provider)return;
@@ -509,14 +520,15 @@ async function loadLLMConfig(){
     $('llmProvider').value=c.provider_id;renderLLMProvider(c.provider_id,c.model);
     $('llmBaseUrl').value=c.base_url;$('llmCustomModel').value=c.model;$('llmApiKey').value='';
     $('llmAnswerMode').value=c.source==='default'?'llm':c.answer_mode;
+    $('llmFallbackEnabled').checked=c.fallback_enabled!==false;
     $('llmConfigStatus').textContent=c.configured?'已配置模型服务，可测试连接；密钥不会回显。':'已预选免费方案，填入该服务商的 API Key 后保存即可使用。';
   }catch(e){$('llmConfigStatus').textContent='读取配置失败：'+e.message}
 }
 $('llmProvider').onchange=()=>{renderLLMProvider($('llmProvider').value);$('llmApiKey').value='';$('llmConfigStatus').textContent='选择尚未生效，请填写该服务商的密钥并保存；留空只复用该服务商以前保存的密钥。';};
-function setLLMBusy(busy){for(const id of ['saveLLM','testLLM','resetLLM','llmProvider','llmModel','llmBaseUrl','llmCustomModel','llmApiKey','llmAnswerMode'])$(id).disabled=busy}
+function setLLMBusy(busy){for(const id of ['saveLLM','testLLM','resetLLM','llmProvider','llmModel','llmBaseUrl','llmCustomModel','llmApiKey','llmAnswerMode','llmFallbackEnabled'])$(id).disabled=busy}
 async function saveLLM(test=false){
   setLLMBusy(true);$('llmConfigStatus').textContent=test?'正在保存并测试连接…':'正在保存配置…';
-  try{const custom=$('llmProvider').value==='custom';const payload={provider_id:$('llmProvider').value,model:custom?$('llmCustomModel').value:$('llmModel').value,base_url:custom?$('llmBaseUrl').value:'',api_key:$('llmApiKey').value||null,answer_mode:$('llmAnswerMode').value};
+  try{const custom=$('llmProvider').value==='custom';const payload={provider_id:$('llmProvider').value,model:custom?$('llmCustomModel').value:$('llmModel').value,base_url:custom?$('llmBaseUrl').value:'',api_key:$('llmApiKey').value||null,answer_mode:$('llmAnswerMode').value,fallback_enabled:$('llmFallbackEnabled').checked};
     const c=await api('/api/llm/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});savedLLMConfig=c;$('llmApiKey').value='';
     $('llmConfigStatus').textContent=c.configured?'已保存，后续回答使用当前选择的服务和模式。':'已保存服务选择，但尚缺 API Key。';
     await loadRagStatus();await loadPrompt();

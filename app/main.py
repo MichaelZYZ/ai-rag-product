@@ -52,6 +52,7 @@ class LLMConfigInput(BaseModel):
     base_url: str = Field(default='', max_length=1000)
     api_key: Optional[str] = Field(default=None, max_length=4096)
     answer_mode: str = 'llm'
+    fallback_enabled: bool = True
 
 @app.get('/api/llm/config')
 def get_llm_config():
@@ -61,7 +62,8 @@ def get_llm_config():
 def save_llm_config(data: LLMConfigInput):
     try:
         return llm_config.save(core.DB_PATH, provider_id=data.provider_id, model=data.model,
-                               base_url=data.base_url, api_key=data.api_key, answer_mode=data.answer_mode)
+                               base_url=data.base_url, api_key=data.api_key, answer_mode=data.answer_mode,
+                               fallback_enabled=data.fallback_enabled)
     except ValueError as error:
         raise HTTPException(400, str(error))
 
@@ -108,13 +110,18 @@ def rag_status():
             'embedding_provider': semantic.config()[0], 'embedding_model': semantic.config()[1],
             'faiss_available': importlib.util.find_spec('faiss') is not None,
             'local_embedding_available': importlib.util.find_spec('sentence_transformers') is not None,
+            'missing_dependencies': semantic.missing_dependencies(),
+            'install_command': semantic.install_command(),
             'chunks': chunks, 'indexed_chunks': indexed,
             'llm_configured': core.answer_prompt_config()['model_enabled']}
 
 @app.post('/api/rag/reindex')
 def reindex():
     try:
+        semantic.require_dependencies()
         return semantic.index_chunks(core.connect)
+    except ModuleNotFoundError as error:
+        raise HTTPException(503, semantic.dependency_error(error))
     except Exception as error:
         raise HTTPException(503, '语义索引构建失败（' + type(error).__name__ + '），请检查依赖、模型和网络配置')
 
@@ -226,6 +233,8 @@ def ask(data: AskInput):
         return core.ask(data.question, data.session_id, data.product_id, data.version)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except ModuleNotFoundError as error:
+        raise HTTPException(503, semantic.dependency_error(error))
     except Exception as error:
         raise HTTPException(503, '问答服务暂不可用（' + type(error).__name__ + '），请检查检索配置')
 
@@ -234,8 +243,8 @@ def feedback(data: FeedbackInput):
     if data.rating not in (-1, 1):
         raise HTTPException(400, '请选择有帮助或没帮助')
     with core.connect() as db:
-        message = db.execute('SELECT id FROM messages WHERE id=? AND session_id=? AND role=? AND status=?',
-                             (data.message_id, data.session_id, 'assistant', 'answered')).fetchone()
+        message = db.execute("SELECT id FROM messages WHERE id=? AND session_id=? AND role=? AND status IN ('answered','external_answer')",
+                             (data.message_id, data.session_id, 'assistant')).fetchone()
         if not message:
             raise HTTPException(404, '对应回答不存在或不可评价')
         db.execute('''INSERT INTO feedback(session_id,message_id,rating,note,created_at)
@@ -283,6 +292,7 @@ def stats():
         counts = dict(db.execute('SELECT status,count(*) n FROM messages WHERE role="assistant" GROUP BY status').fetchall())
         total = sum(counts.values())
         return {'questions': total, 'answered': counts.get('answered', 0),
+                'external_answers': counts.get('external_answer', 0),
                 'handoffs': counts.get('handoff', 0),
                 'unanswered': counts.get('no_answer', 0) + counts.get('no_product', 0),
                 'auto_faqs': db.execute("SELECT count(*) FROM faqs WHERE kind IN ('auto','rule','trained')").fetchone()[0],

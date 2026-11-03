@@ -34,8 +34,8 @@ class ConversationalAnswerTests(unittest.TestCase):
     def test_missing_fact_explains_scope_without_inventing_answer(self):
         result = core.ask('云盒支持语音转写吗？', product_id='cloud_box', version='2.0')
         self.assertEqual(result['status'], 'no_answer')
-        self.assertIn('云盒 2.0', result['display_answer'])
-        self.assertIn('没在', result['display_answer'])
+        self.assertIn('资料储备不够', result['display_answer'])
+        self.assertIn('手动补充', result['display_answer'])
         self.assertEqual(result['sources'], [])
         self.assertEqual(result['suggested_questions'], [])
 

@@ -5,6 +5,7 @@ Hash vectors remain a separate baseline. Models/configurations never share vecto
 import hashlib
 import json
 import os
+import importlib.util
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +13,34 @@ from pathlib import Path
 import numpy as np
 
 os.environ.setdefault('HF_HOME', str(Path(__file__).resolve().parents[1] / '.cache/huggingface'))
+
+
+def missing_dependencies():
+    required = [('faiss', 'faiss-cpu')]
+    if os.getenv('EMBEDDING_PROVIDER', 'local') == 'local':
+        required += [('torch', 'torch'), ('sentence_transformers', 'sentence-transformers')]
+    return [{'module': module, 'package': package} for module, package in required
+            if importlib.util.find_spec(module) is None]
+
+
+def require_dependencies():
+    missing = missing_dependencies()
+    if missing:
+        module = missing[0]['module']
+        raise ModuleNotFoundError('Semantic retrieval dependency is missing', name=module)
+
+
+def install_command():
+    return ('.\\.venv\\Scripts\\python.exe' if os.name == 'nt' else '.venv/bin/python') + ' -m pip install -r requirements/rag.txt'
+
+
+def dependency_error(error):
+    # The module name is safe to display; provider exception messages can contain secrets.
+    module = getattr(error, 'name', None) or ''
+    if not module or not all(c.isalnum() or c in '._' for c in module):
+        module = '未知依赖'
+    return ('缺少 Python 模块：' + module + '。请在项目目录使用运行服务的虚拟环境安装语义依赖：'
+            + install_command() + '。安装完成后关闭旧服务并重新启动，再补建索引。')
 
 
 def config():

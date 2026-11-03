@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from .markup import clean_markup
 
 # Convert full-width ASCII (including numbers and Latin letters) without changing
 # meaningful symbols such as ① or measurement units.
@@ -14,7 +15,7 @@ PAGE_MARKER = re.compile(
 )
 
 
-def clean_document(text: str, *, remove_page_markers=True, remove_duplicates=True):
+def clean_document(text: str, *, remove_page_markers=True, remove_duplicates=True, source_format=''):
     """Return cleaned text and a report; never infer or rewrite product facts."""
     raw_chars = len(text)
     text = unicodedata.normalize('NFC', text).translate(FULLWIDTH_ASCII)
@@ -24,12 +25,14 @@ def clean_document(text: str, *, remove_page_markers=True, remove_duplicates=Tru
     # Keep tabs and newlines until each line has been normalized.
     controls = sum(1 for ch in text if unicodedata.category(ch) == 'Cc' and ch not in '\n\t')
     text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Cc' or ch in '\n\t')
+    original_lines = len(text.split('\n'))
+    text, markup_report = clean_markup(text, markdown=source_format.lower() in ('.md', '.markdown'))
     lines = text.split('\n')
     output = []
-    report = {'original_characters': raw_chars, 'input_lines': len(lines),
+    report = {'original_characters': raw_chars, 'input_lines': original_lines,
               'empty_lines_removed': 0, 'page_markers_removed': 0,
               'adjacent_duplicates_removed': 0, 'control_characters_removed': controls,
-              'whitespace_normalized_lines': 0}
+              'whitespace_normalized_lines': 0, **markup_report}
     for line in lines:
         clean = re.sub(r'[\t ]+', ' ', line).strip()
         if clean != line:

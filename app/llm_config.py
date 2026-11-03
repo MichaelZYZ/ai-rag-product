@@ -56,13 +56,15 @@ def effective(db_path):
             raise ValueError('本机模型服务商配置无效')
         return {'provider_id': provider['id'], 'base_url': saved.get('base_url', ''),
                 'model': saved.get('model', ''), 'api_key': saved.get('keys', {}).get(provider['id'], ''),
-                'answer_mode': saved.get('answer_mode', 'llm'), 'source': 'local'}
+                'answer_mode': saved.get('answer_mode', 'llm'),
+                'fallback_enabled': saved.get('fallback_enabled', True), 'source': 'local'}
     endpoint, key, model = [os.getenv(k, '').strip() for k in ('LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL')]
     using_env = bool(endpoint or model or key)
     return {'provider_id': 'custom' if using_env else 'openrouter',
             'base_url': endpoint.rstrip('/') if using_env else PROVIDERS[0]['base_url'],
             'model': model if using_env else 'openrouter/free', 'api_key': key,
-            'answer_mode': os.getenv('RAG_ANSWER_MODE', 'auto'), 'source': 'environment' if using_env else 'default'}
+            'answer_mode': os.getenv('RAG_ANSWER_MODE', 'auto'), 'fallback_enabled': True,
+            'source': 'environment' if using_env else 'default'}
 
 
 def enabled(db_path):
@@ -70,6 +72,11 @@ def enabled(db_path):
         return False
     config = effective(db_path)
     return all(config[k] for k in ('base_url', 'api_key', 'model'))
+
+
+def external_fallback_enabled(db_path):
+    return (os.getenv('RAG_EXTERNAL_FALLBACK') != '0' and effective(db_path)['fallback_enabled']
+            and enabled(db_path))
 
 
 def public_config(db_path):
@@ -87,7 +94,7 @@ def validate_url(value):
         raise ValueError('Base URL 必须为 HTTPS 或本机 HTTP 地址，且不能含密钥、查询参数或片段')
 
 
-def save(db_path, provider_id, model='', base_url='', api_key=None, answer_mode='llm'):
+def save(db_path, provider_id, model='', base_url='', api_key=None, answer_mode='llm', fallback_enabled=True):
     provider = next((p for p in PROVIDERS if p['id'] == provider_id), None)
     if provider is None:
         raise ValueError('请选择有效服务商')
@@ -114,7 +121,7 @@ def save(db_path, provider_id, model='', base_url='', api_key=None, answer_mode=
         keys[provider_id] = api_key
     # Empty fields only retain this provider's own saved credential, never another provider's.
     config = {'provider_id': provider_id, 'model': model, 'base_url': base_url,
-              'answer_mode': answer_mode, 'keys': keys}
+              'answer_mode': answer_mode, 'fallback_enabled': bool(fallback_enabled), 'keys': keys}
     path = config_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None

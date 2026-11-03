@@ -22,7 +22,7 @@ Windows 手动运行时使用 `.venv\Scripts\python.exe`，或先激活对应虚
 
 ## 免费 API 与语义检索
 
-进入 **知识配置 → 免费 API 与模型选择**，下拉选择 OpenRouter（默认免费路由）、Groq、Gemini 或自定义服务，填入自己的 API Key 后保存并测试。免费额度以平台账户为准；不会自动切换收费模型。密钥保存在本机，代码包不包含密钥。详见[免费 API 操作说明](docs/guides/FREE_API_SETUP.md)。
+进入 **知识配置 → 免费 API 与模型选择**，下拉选择 OpenRouter（默认免费路由）、Groq、Gemini 或自定义服务，填入自己的 API Key 后保存并测试。默认启用“知识库回答不了时调用当前模型”：外部通用参考会单独标记来源、服务商与实际响应模型，不作为已验证产品资料，原知识缺口仍可手动补充。免费额度以账户为准，不自动切换收费模型。详见[免费 API 操作说明](docs/guides/FREE_API_SETUP.md)。
 
 默认使用字符检索基线。启用语义 Embedding + FAISS 时，先安装可选依赖，再设置检索模式；详细的 Windows 与 macOS 步骤见[业务操作手册](docs/guides/BUSINESS_OPERATIONS.md)。
 

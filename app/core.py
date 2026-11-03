@@ -17,10 +17,12 @@ from xml.etree import ElementTree as ET
 import numpy as np
 from sklearn.feature_extraction.text import HashingVectorizer
 from .cleaning import clean_document
-from .faq import ANSWER, QUESTION, extract_faqs, extract_training_faqs
+from .faq import (ANSWER, QUESTION, extract_faqs, extract_training_faqs,
+                  extract_topic_faqs, normalized_question, question_variants, is_reference)
 from .html_extract import extract_html_text
 from . import semantic
 from . import llm_config
+from . import introduction
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.getenv('RAG_DB', ROOT / 'data' / 'rag.sqlite3'))
@@ -28,6 +30,7 @@ VECTORIZER = HashingVectorizer(analyzer='char', ngram_range=(2, 4), n_features=4
                                alternate_sign=False, norm='l2', lowercase=True)
 HANDOFF_WORDS = ('退款', '投诉', '退货', '账户权限', '修改权限', '人工', '注销账户')
 FOLLOWUP_WORDS = ('它', '这个', '那个', '最多', '多少', '怎么', '呢', '还', '是否')
+INSUFFICIENT_KNOWLEDGE = '资料储备不够，暂时无法回答这个问题。可以手动补充问答后再提问。'
 
 
 def connect():
@@ -58,6 +61,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, product_id TEXT, version TEXT, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
             role TEXT NOT NULL, text TEXT NOT NULL, status TEXT, created_at TEXT NOT NULL, product_id TEXT);
+        CREATE TABLE IF NOT EXISTS answer_provenance(message_id INTEGER PRIMARY KEY,
+            source_type TEXT NOT NULL, provider TEXT, requested_model TEXT, actual_model TEXT,
+            FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE);
         CREATE TABLE IF NOT EXISTS handoffs(id TEXT PRIMARY KEY, session_id TEXT NOT NULL, summary TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS feedback(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
@@ -216,8 +222,9 @@ def prepare_document(product_id, version, filename, content, *, remove_page_mark
             raise ValueError('产品不存在')
     raw_text = parse_document(filename, content)
     text, cleaning_report = clean_document(raw_text, remove_page_markers=remove_page_markers,
-                                          remove_duplicates=remove_duplicates)
-    candidates = extract_faqs(text, product['name'])
+                                          remove_duplicates=remove_duplicates,
+                                          source_format=Path(filename).suffix)
+    candidates = extract_faqs(text, product['name']) + extract_topic_faqs(text, product['name'])
     if include_training:
         candidates += extract_training_faqs(text, product['name'])
     faqs, seen = [], set()
@@ -225,17 +232,22 @@ def prepare_document(product_id, version, filename, content, *, remove_page_mark
         key = (faq['question'], faq['answer'])
         if key not in seen:
             seen.add(key)
-            faqs.append(faq)
+            faqs.append({**faq, 'related_questions': question_variants(faq['question'], faq['category'])})
     chunks = split_text(text, max_chars, overlap)
     for faq in faqs:
-        if not any(faq['answer'] in chunk for chunk in chunks):
-            chunks.extend(split_text(faq['answer'], max_chars, overlap))
+        # A section answer can span several already indexed facts; do not duplicate
+        # every passage just because the combined answer is not one single chunk.
+        missing = [line for line in faq['answer'].splitlines() if line.strip()
+                   and not any(line in chunk for chunk in chunks)]
+        if missing:
+            chunks.extend(split_text('\n'.join(missing), max_chars, overlap))
     chunks = list(dict.fromkeys(chunks))
     if not chunks:
         raise ValueError('文档中没有可索引的文字')
     cleaning_report['settings'] = {'remove_page_markers': remove_page_markers,
                                   'remove_duplicates': remove_duplicates,
-                                  'max_chars': max_chars, 'overlap': overlap}
+                                  'max_chars': max_chars, 'overlap': overlap,
+                                  'source_format': Path(filename).suffix.lower()}
     return {'text': text, 'cleaning': cleaning_report, 'chunks': chunks, 'faqs': faqs,
             'product_name': product['name']}
 
@@ -338,7 +350,9 @@ def bootstrap_faqs(product_id=None, version=None):
                 continue
             source_lines = set(source_text.splitlines())
             proposals = []
-            for faq in extract_faqs(source_text, doc['product_name']) + extract_training_faqs(source_text, doc['product_name']):
+            for faq in (extract_faqs(source_text, doc['product_name'])
+                        + extract_training_faqs(source_text, doc['product_name'])
+                        + extract_topic_faqs(source_text, doc['product_name'])):
                 key = faq_terms(faq['question'], doc['product_name'])
                 answer_lines = [line.strip() for line in faq['answer'].splitlines() if line.strip()]
                 # Every answer line must be copied from this document's text.
@@ -472,7 +486,7 @@ def detect_product(question, explicit, prior):
         for name in [p['name'], p['id'], *json.loads(p['aliases'])]:
             if name and name.lower() in question.lower():
                 return p['id']
-    return explicit or prior
+    return introduction.resolve_product(question, products, explicit, prior) or explicit or prior
 
 
 def retrieve(question, product_id, version, top_k=4):
@@ -543,7 +557,7 @@ def list_faqs(product_id, version, limit=12):
                              WHERE product_id=? AND version=?
                              ORDER BY CASE kind WHEN 'manual' THEN 0 WHEN 'explicit' THEN 1 WHEN 'trained' THEN 2 WHEN 'auto' THEN 3 ELSE 4 END, rowid
                              LIMIT ?''', (product_id, version, limit)).fetchall()
-    return [dict(row) for row in rows]
+    return [{**dict(row), 'related_questions': question_variants(row['question'], row['category'])} for row in rows]
 
 
 def supplement_gap(gap_id, product_id, version, question, answer):
@@ -608,6 +622,7 @@ def match_faq(question, product_id, version):
     if not product or not rows:
         return None
     terms = faq_terms(question, product['name'])
+    normalized = normalized_question(terms)
     query_vec = VECTORIZER.transform([terms]).astype(np.float32).toarray()[0]
     grams = {terms[i:i+2] for i in range(len(terms)-1)}
     product_words = set(re.findall(r'[a-z]{2,}', product['id'].lower() + ' ' + product['name'].lower() +
@@ -617,6 +632,8 @@ def match_faq(question, product_id, version):
     intent = faq_intent(question)
     candidates = []
     for row in rows:
+        if is_reference(row['answer']) and not re.search(r'链接|网址|官网|入口|\burl\b|\blink\b', question, re.I):
+            continue
         if intent and row['category'] not in (intent, '文档 FAQ', '人工 FAQ'):
             continue
         evidence = (row['question'] + ' ' + row['answer']).lower()
@@ -627,6 +644,17 @@ def match_faq(question, product_id, version):
         coverage = len(grams & faq_grams) / max(1, len(grams))
         cosine = float(np.dot(query_vec, np.frombuffer(row['vector'], dtype=np.float32)))
         score = 0.7 * cosine + 0.3 * coverage
+        # Normalize equivalent wording independently of persisted baseline vectors,
+        # so existing/manual FAQs immediately benefit without reimporting documents.
+        alternative = normalized_question(faq_clean)
+        if normalized and alternative and len(normalized) >= 2:
+            a = {normalized[i:i+2] for i in range(len(normalized)-1)}
+            b = {alternative[i:i+2] for i in range(len(alternative)-1)}
+            related_coverage = len(a & b) / max(1, len(a))
+            vectors = VECTORIZER.transform([normalized, alternative]).astype(np.float32).toarray()
+            related_score = 0.7 * float(np.dot(vectors[0], vectors[1])) + 0.3 * related_coverage
+            if related_score > score:
+                score, coverage = related_score, related_coverage
         if score >= 0.38 and coverage >= 0.25:
             candidates.append((score, row))
     if not candidates:
@@ -641,22 +669,56 @@ def match_faq(question, product_id, version):
                        'text': row['answer'], 'score': round(score, 4)}}
 
 
-def llm_answer(question, sources):
+class ModelAnswer(str):
+    """A string-compatible answer that carries the model reported by the API."""
+    def __new__(cls, text, metadata):
+        value = super().__new__(cls, text)
+        value.model_info = metadata
+        return value
+
+
+def model_info(answer=None, config=None):
+    if isinstance(answer, ModelAnswer):
+        return answer.model_info
+    config = config or llm_config.effective(DB_PATH)
+    provider = next((p for p in llm_config.PROVIDERS if p['id'] == config['provider_id']), None)
+    return {'provider': config['provider_id'],
+            'provider_name': provider['name'].split(' · ')[0] if provider else config['provider_id'],
+            'requested_model': config['model'], 'actual_model': None}
+
+
+def model_completion(messages):
     config = llm_config.effective(DB_PATH)
     endpoint, key, model = config['base_url'], config['api_key'], config['model']
     if not llm_config.enabled(DB_PATH):
         return None
-    prompt = answer_prompt_config()['prompt']
-    context = '\n\n'.join(f"[{i+1}] {s['text']}" for i, s in enumerate(sources))
-    payload = json.dumps({'model': model, 'temperature': 0, 'messages': [
-        {'role': 'system', 'content': prompt},
-        {'role': 'user', 'content': f'问题：{question}\n\n资料：\n{context}'}
-    ]}).encode()
+    payload = json.dumps({'model': model, 'temperature': 0, 'messages': messages}).encode()
     request = urllib.request.Request(endpoint + '/chat/completions', data=payload,
                                      headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
     with urllib.request.urlopen(request, timeout=45) as response:
-        answer = json.load(response)['choices'][0]['message']['content'].strip()
-    return answer
+        result = json.load(response)
+    text = result['choices'][0]['message']['content']
+    if not isinstance(text, str) or not text.strip():
+        return None
+    metadata = model_info(config=config)
+    actual = result.get('model')
+    if isinstance(actual, str) and actual.strip():
+        metadata['actual_model'] = re.sub(r'[\x00-\x1f\x7f]', '', actual).strip()[:200]
+    return ModelAnswer(text.strip(), metadata)
+
+
+def llm_answer(question, sources):
+    prompt = answer_prompt_config()['prompt']
+    context = '\n\n'.join(f"[{i+1}] {s['text']}" for i, s in enumerate(sources))
+    return model_completion([{'role': 'system', 'content': prompt},
+                             {'role': 'user', 'content': f'问题：{question}\n\n资料：\n{context}'}])
+
+
+def external_answer(question, product_name=None, version=None):
+    prompt = (ROOT / 'prompts/fallback.txt').read_text(encoding='utf-8')
+    scope = f'当前咨询范围：{product_name or "未指定产品"}；版本：{version or "未指定"}。\n'
+    return model_completion([{'role': 'system', 'content': prompt},
+                             {'role': 'user', 'content': scope + '问题：' + question}])
 
 
 def handoff(db, session_id, question, product_id, version, reason):
@@ -684,8 +746,7 @@ def conversational_answer(question, answer, status, product_name=None, version=N
             return '关于这个功能，资料说明：' + fact
         return '我查到的说明是：' + fact
     if status == 'no_answer':
-        scope = f'{product_name} {version}'.strip() if product_name else '当前产品'
-        return f'抱歉，我暂时没在{scope}的资料里找到这个问题的明确答案。你可以换个更具体的问法，或在知识库管理中补充资料。'
+        return INSUFFICIENT_KNOWLEDGE
     if status == 'handoff':
         return '这件事需要人工确认，我已为你记录。' if '已为你生成转人工记录' in answer else answer
     return answer
@@ -707,6 +768,8 @@ def ask(question, session_id=None, product_id=None, version=None):
         # Model calls and index writes must finish before the conversation write lock.
         semantic.index_chunks(connect)
     generation_mode, generation_error = 'rule', None
+    knowledge_gap = None
+    used_model = None
     session_id = session_id or uuid.uuid4().hex
     discovery = is_discovery_question(question)
     matched_products = search_products(question) if discovery else []
@@ -738,6 +801,10 @@ def ask(question, session_id=None, product_id=None, version=None):
             rewritten = prev['text'] + '；追问：' + question
         sources = retrieve(rewritten, product_id, version) if product_id and version and not discovery else []
         faq = match_faq(rewritten, product_id, version) if product_id and version and not discovery else None
+        overview = (introduction.retrieve(connect, question, product_id, version)
+                    if product_id and version and not discovery else None)
+        if overview is not None and not (faq and faq['conflict']):
+            sources, faq = overview['sources'], overview['faq']
         top = sources[0]['score'] if sources else 0
         ticket_id = None
         if any(word in question for word in HANDOFF_WORDS):
@@ -773,12 +840,16 @@ def ask(question, session_id=None, product_id=None, version=None):
             generation_mode = 'faq'
         elif top < minimum_score or (sources and any(term.lower() not in sources[0]['text'].lower() for term in re.findall(r'[A-Za-z]{3,}', question) if term.lower() not in ('nova', 'notes', 'orbit', 'tasks'))):
             status = 'no_answer'
-            answer = '现有产品资料中暂未找到相关说明，请补充问题或联系人工客服。'
+            answer = INSUFFICIENT_KNOWLEDGE
             sources = []
         else:
             status = 'answered'
             try:
+                if answer_mode != 'extractive' and llm_config.enabled(DB_PATH):
+                    used_model = model_info()
                 generated = llm_answer(rewritten, sources[:3]) if answer_mode != 'extractive' else None
+                if generated:
+                    used_model = model_info(generated)
             except Exception as error:
                 generated = None
                 generation_error = ('HTTP' + str(error.code) if isinstance(error, urllib.error.HTTPError)
@@ -791,15 +862,41 @@ def ask(question, session_id=None, product_id=None, version=None):
                 generation_mode = 'error'
                 generation_error = generation_error or 'LLMNotConfiguredOrEmpty'
                 answer = llm_config.error_message(generation_error)
-            elif generated and '现有产品资料中暂未找到相关说明' in generated:
+            elif generated and generated.startswith(('资料储备不够', '现有产品资料中暂未找到相关说明')):
                 status = 'no_answer'
-        if status in ('no_answer', 'no_product'):
-            db.execute('INSERT INTO unanswered(session_id,question,product_id,version,created_at) VALUES(?,?,?,?,?)',
-                       (session_id, question, product_id, version, now()))
+                answer = INSUFFICIENT_KNOWLEDGE
+        if status in ('no_answer', 'no_product') and generation_mode != 'error':
+            gap_id = db.execute('INSERT INTO unanswered(session_id,question,product_id,version,created_at) VALUES(?,?,?,?,?)',
+                                (session_id, question, product_id, version, now())).lastrowid
+            knowledge_gap = {'id': gap_id, 'question': question, 'product_id': product_id, 'version': version}
+        product_name_row = db.execute('SELECT name FROM products WHERE id=?', (product_id,)).fetchone() if product_id else None
+        if (knowledge_gap and not discovery and not matched_products and answer_mode != 'extractive'
+                and llm_config.external_fallback_enabled(DB_PATH)):
+            used_model = model_info()
+            try:
+                external = external_answer(rewritten, product_name_row['name'] if product_name_row else None, version)
+                if not external:
+                    raise ValueError('Empty model answer')
+                answer, status, generation_mode = external, 'external_answer', 'llm_external'
+                used_model = model_info(external)
+                generation_error = None
+                sources = []
+            except Exception as error:
+                generation_error = ('HTTP' + str(error.code) if isinstance(error, urllib.error.HTTPError)
+                                    else type(error).__name__)
+                generation_mode = 'error'
+                answer = llm_config.error_message(generation_error)
         message_id = db.execute('INSERT INTO messages(session_id,role,text,status,created_at) VALUES(?,?,?,?,?)',
                                 (session_id, 'assistant', answer, status, now())).lastrowid
-        product_name_row = db.execute('SELECT name FROM products WHERE id=?', (product_id,)).fetchone() if product_id else None
-        display_answer = (answer if generation_mode == 'error' else
+        source_type = ('external_model' if status == 'external_answer' else
+                       'knowledge_base' if status == 'answered' else 'system')
+        source_label = {'external_model': '外部模型通用知识，未经产品资料验证',
+                        'knowledge_base': '产品知识库资料', 'system': '系统提示'}[source_type]
+        db.execute('INSERT INTO answer_provenance VALUES(?,?,?,?,?)',
+                   (message_id, source_type, used_model['provider'] if used_model else None,
+                    used_model['requested_model'] if used_model else None,
+                    used_model['actual_model'] if used_model else None))
+        display_answer = (answer if generation_mode in ('error', 'llm_external') else
                           conversational_answer(question, answer, status,
                                                product_name_row['name'] if product_name_row else None, version))
         suggested_questions = []
@@ -809,7 +906,14 @@ def ask(question, session_id=None, product_id=None, version=None):
             candidates = db.execute('''SELECT question,answer,category FROM faqs
                                        WHERE product_id=? AND version=? ORDER BY rowid LIMIT 80''',
                                     (product_id, version)).fetchall()
-            candidates = sorted(candidates, key=lambda row: row['category'] != current_category)
+            context = normalized_question(question + ' ' + answer)
+            context_grams = {context[i:i+2] for i in range(len(context)-1)}
+            def relatedness(row):
+                topic = normalized_question(row['question'])
+                grams = {topic[i:i+2] for i in range(len(topic)-1)}
+                return (int(row['category'] == current_category)
+                        + len(context_grams & grams) / max(1, len(grams)))
+            candidates = sorted(candidates, key=relatedness, reverse=True)
             seen_answers = {answer.strip()}
             for candidate in candidates:
                 if (faq_terms(candidate['question'], product_name_row['name']) == current_key
@@ -823,8 +927,13 @@ def ask(question, session_id=None, product_id=None, version=None):
             'message_id': message_id,
             'rewritten_question': rewritten, 'answer': answer, 'display_answer': display_answer,
             'suggested_questions': suggested_questions, 'status': status,
-            'confidence': round(top, 4), 'sources': sources[:3] if status == 'answered' else [],
+            'confidence': None if status == 'external_answer' else round(top, 4),
+            'sources': sources[:3] if status == 'answered' else [],
             'matched_products': matched_products, 'handoff_id': ticket_id,
             'retriever': retriever, 'generation_mode': generation_mode,
+            'evidence_match': 'product_introduction' if overview is not None else 'retrieval',
             'generation_error': generation_error,
+            'knowledge_gap': knowledge_gap,
+            'answer_source': {'type': source_type, 'label': source_label},
+            'model_info': used_model,
             'latency_ms': round((time.monotonic()-start)*1000)}

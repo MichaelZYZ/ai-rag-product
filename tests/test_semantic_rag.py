@@ -128,6 +128,25 @@ class SemanticRagTests(unittest.TestCase):
             self.assertEqual(failure.status_code, 503)
             self.assertNotIn('secret-service-detail', failure.text)
 
+    def test_missing_dependency_has_install_instructions_without_raw_exception(self):
+        client = TestClient(app)
+        missing = [{'module': 'sentence_transformers', 'package': 'sentence-transformers'}]
+        with patch.object(semantic, 'missing_dependencies', return_value=missing):
+            status = client.get('/api/rag/status').json()
+            self.assertEqual(status['missing_dependencies'], missing)
+            self.assertIn('requirements/rag.txt', status['install_command'])
+            with patch.object(semantic, 'index_chunks') as index:
+                response = client.post('/api/rag/reindex')
+            index.assert_not_called()
+            self.assertEqual(response.status_code, 503)
+            self.assertIn('sentence_transformers', response.json()['detail'])
+            self.assertIn('requirements/rag.txt', response.json()['detail'])
+        with patch.object(semantic, 'require_dependencies'), patch.object(semantic, 'index_chunks',
+                side_effect=ModuleNotFoundError('secret-service-detail', name='transformers')):
+            response = client.post('/api/rag/reindex')
+            self.assertIn('transformers', response.json()['detail'])
+            self.assertNotIn('secret-service-detail', response.text)
+
 
 if __name__ == '__main__':
     unittest.main()

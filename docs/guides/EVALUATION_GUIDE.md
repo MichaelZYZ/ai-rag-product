@@ -50,3 +50,7 @@ human_review.csv 为每个方案、每个问题导出原始答案和本次引用
 ## 失败分析与提交
 
 RESULTS.md 自动列出实际失败记录；docs/analysis/FAILURE_ANALYSIS.md 解释代表样本的原因与改进方向。新增检索方案的变化必须同时观察正确回答和无答案问题，不能只报告更高的召回率。修改模型、阈值、分块或 Prompt 后，应另存新目录、比较相同样本并重新评阅，不覆盖旧证据。参考 FAISS 官方文档 https://github.com/facebookresearch/faiss/wiki/Getting-started 与模型卡 https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 。
+
+## 通用模型回退与 RAG 指标的区别
+
+当前网页允许知识库不足时调用配置模型的通用知识。标准 benchmark 为检索/资料生成比较，会显式设置 RAG_EXTERNAL_FALLBACK=0，不把通用参考混入忠实度或知识库命中率；逐题结果记录 answer_source 与 model_info。外部回答在业务中为 external_answer，单独统计且保留知识缺口。其内容未由知识库验证，也不代表进行了联网查证。外部流程测试使用受控响应，实际供应商连接和质量仍需有效 Key 后验证。

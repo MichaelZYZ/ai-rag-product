@@ -8,5 +8,6 @@ if __name__ == '__main__':
     parser.add_argument('--product')
     parser.add_argument('--version')
     args = parser.parse_args()
+    semantic.require_dependencies()
     core.init_db()
     print(json.dumps(semantic.index_chunks(core.connect, args.product, args.version), ensure_ascii=False))

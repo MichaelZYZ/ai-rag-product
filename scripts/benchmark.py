@@ -89,7 +89,8 @@ def main():
                         continue
                     # Thresholds are explicitly fixed before evaluating; no tuning on this set.
                     threshold = '0.35' if retriever == 'semantic' else '0.16'
-                    environment = {'RAG_RETRIEVER': retriever, 'RAG_ANSWER_MODE': mode, 'RAG_MIN_SCORE': threshold}
+                    environment = {'RAG_RETRIEVER': retriever, 'RAG_ANSWER_MODE': mode,
+                                   'RAG_MIN_SCORE': threshold, 'RAG_EXTERNAL_FALLBACK': '0'}
                     if mode == 'llm':
                         environment.update(LLM_BASE_URL=model_config['base_url'], LLM_API_KEY=model_config['api_key'],
                                            LLM_MODEL=model_config['model'])
