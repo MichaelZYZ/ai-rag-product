@@ -13,7 +13,7 @@ from run_server import available_port
 class LauncherTests(unittest.TestCase):
     def test_windows_python_probes_execute_without_embedded_double_quotes(self):
         root = Path(__file__).resolve().parents[1]
-        script = (root / 'bootstrap_windows.ps1').read_text()
+        script = (root / 'scripts/bootstrap_windows.ps1').read_text()
         snippets = re.findall(r'-c "([^"\n]+)" 2>\$null', script)
         self.assertEqual(len(snippets), 2)
         # Check compatibility with legacy native arguments: embedded double

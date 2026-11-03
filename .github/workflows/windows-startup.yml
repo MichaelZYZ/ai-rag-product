@@ -4,7 +4,9 @@ on:
   push:
     paths:
       - 'start_windows.bat'
-      - 'bootstrap_windows.ps1'
+      - 'scripts/bootstrap_windows.ps1'
+      - 'scripts/**'
+      - 'requirements/**'
       - 'requirements.txt'
       - 'app/**'
       - 'tests/**'
@@ -12,7 +14,9 @@ on:
   pull_request:
     paths:
       - 'start_windows.bat'
-      - 'bootstrap_windows.ps1'
+      - 'scripts/bootstrap_windows.ps1'
+      - 'scripts/**'
+      - 'requirements/**'
       - 'requirements.txt'
       - 'app/**'
       - 'tests/**'

@@ -11,7 +11,7 @@ if not "%~1"=="" if not "%~1"=="--setup-only" (
 set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if not exist "%POWERSHELL_EXE%" set "POWERSHELL_EXE=powershell.exe"
 
-"%POWERSHELL_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0bootstrap_windows.ps1" -ProjectRoot "%PROJECT_ROOT%" %SETUP_ARGS%
+"%POWERSHELL_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap_windows.ps1" -ProjectRoot "%PROJECT_ROOT%" %SETUP_ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" (
     echo.

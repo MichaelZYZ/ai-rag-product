@@ -11,7 +11,7 @@ def main():
     output = ROOT / 'dist'
     output.mkdir(exist_ok=True)
     archive = output / 'rag_course_project.zip'
-    roots = ['app', 'tests', 'prompts', 'docs', 'scripts', 'reports/latest', 'data', '.github']
+    roots = ['app', 'tests', 'prompts', 'docs', 'scripts', 'requirements', 'reports/latest', 'data', '.github']
     allowed = {'.py', '.json', '.csv', '.md', '.html', '.txt', '.png', '.pdf', '.docx', '.pptx', '.ps1', '.yml', '.yaml'}
     candidates = [p for name in roots for p in (ROOT / name).rglob('*') if p.is_file()]
     candidates += [p for p in ROOT.iterdir() if p.is_file() and p.suffix in {'.py', '.md', '.txt', '.ps1', '.bat', '.command', '.docx'}]

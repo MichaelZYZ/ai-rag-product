@@ -8,20 +8,20 @@ data/eval_extended.json 固定为 45 个问题，包含可回答题、无答案�
 
 ## 运行离线实验
 
-安装基础依赖后运行 `python -m pip install -r requirements-rag.txt`。第一次使用本地 Embedding 会下载模型；默认模型是 sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2。模型在本机推理，实验不调用远程 Embedding API 或 LLM。设置 HF_HOME 可指定模型缓存目录，预先下载后可以设置 HF_HUB_OFFLINE=1 离线使用。
+安装基础依赖后运行 `python -m pip install -r requirements/rag.txt`。第一次使用本地 Embedding 会下载模型；默认模型是 sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2。模型在本机推理，实验不调用远程 Embedding API 或 LLM。设置 HF_HOME 可指定模型缓存目录，预先下载后可以设置 HF_HUB_OFFLINE=1 离线使用。
 
 ```bash
-python benchmark.py --output reports/latest
-python review_results.py reports/latest
-python -m pip install -r requirements-docs.txt
-python scripts/plot_results.py reports/latest
+python -m scripts.benchmark --output reports/latest
+python -m scripts.review_results reports/latest
+python -m pip install -r requirements/docs.txt
+python -m scripts.plot_results reports/latest
 ```
 
-benchmark.py 始终创建临时数据库，不清空、导入或修改正式知识库。它以相同语料、题目和抽取式回答模式比较 hash_extractive 与 semantic_extractive，强制绕过 FAQ 直接回答，减少业务快捷路径对检索对比的干扰；FAQ 冲突仍转人工。字符阈值 0.16、语义阈值 0.35 在实验前固定，均未经过独立开发集校准。重跑覆盖指定输出目录，应为需要留档的实验选择新目录。
+scripts/benchmark.py 始终创建临时数据库，不清空、导入或修改正式知识库。它以相同语料、题目和抽取式回答模式比较 hash_extractive 与 semantic_extractive，强制绕过 FAQ 直接回答，减少业务快捷路径对检索对比的干扰；FAQ 冲突仍转人工。字符阈值 0.16、语义阈值 0.35 在实验前固定，均未经过独立开发集校准。重跑覆盖指定输出目录，应为需要留档的实验选择新目录。
 
 ## 真实模型实验
 
-先在网页保存服务商、模型和 Key，或在当前进程环境设置 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL，再运行 `python benchmark.py --with-llm --output reports/llm-run`。应用不自动读取 .env，.env.example 仅为配置参考。不要在命令历史、截图、报告或代码包中保存密钥。API 应支持 Chat Completions；Base URL 通常带 /v1，代码追加 /chat/completions，实际以服务商文档为准。
+先在网页保存服务商、模型和 Key，或在当前进程环境设置 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL，再运行 `python -m scripts.benchmark --with-llm --output reports/llm-run`。应用不自动读取 .env，.env.example 仅为配置参考。不要在命令历史、截图、报告或代码包中保存密钥。API 应支持 Chat Completions；Base URL 通常带 /v1，代码追加 /chat/completions，实际以服务商文档为准。
 
 此命令额外运行 hash_llm 和 semantic_llm。严格模型模式不把原文回退记为模型生成；调用失败会记录 error 类型与失败数量。没有完整配置的方案会进入 skipped，不能解释为已通过。模型、语料摘要、题目摘要、阈值、运行时间、逐题答案和证据保存在 benchmark.json。报告不包含密钥或服务返回的原始异常信息。
 
@@ -39,14 +39,14 @@ benchmark.py 始终创建临时数据库，不清空、导入或修改正式知�
 | 忠实度 | 人工逐事实核对实际答案与本次提供证据 | 不是检索分数或关键词命中率 |
 | 答案相关性 | 人工核对是否直接、充分回答原问题的条件与目标 | 有来源也可能答非所问 |
 
-原网页的 8 题评估仍保持原口径，并移除子进程的 LLM 配置，适合作为快速回归。完整模型实验应使用 benchmark.py；不能把网页曲线称为模型 loss 或把其状态矩阵称为幻觉评估。
+原网页的 8 题评估仍保持原口径，并移除子进程的 LLM 配置，适合作为快速回归。完整模型实验应使用 scripts/benchmark.py；不能把网页曲线称为模型 loss 或把其状态矩阵称为幻觉评估。
 
 ## 人工评阅
 
 human_review.csv 为每个方案、每个问题导出原始答案和本次引用证据。只有 actual_status 为 answered 且无生成错误的记录需要填写两项质量分数。拒答和转人工由状态指标单独评估。faithfulness：2 为所有事实有证据，1 为部分事实缺少证据，0 为核心事实无证据或与证据矛盾。answer_relevance：2 为直接充分回答，1 为部分回答或有明显冗余，0 为答非所问。必须同时填写两项分数、reviewer 与 reason。
 
-`python review_results.py reports/latest` 校验记录摘要、重复项、分数范围和评阅依据，输出 quality_scores.json。分数除以 2 归一化后仅对实际评阅项取平均，并报告覆盖率。空白项保持 null，不冒充人工实验结果。不同实验的评阅表不能混用。建议组员独立评阅再讨论分歧；本项目未伪造组员评分。
+`python -m scripts.review_results reports/latest` 校验记录摘要、重复项、分数范围和评阅依据，输出 quality_scores.json。分数除以 2 归一化后仅对实际评阅项取平均，并报告覆盖率。空白项保持 null，不冒充人工实验结果。不同实验的评阅表不能混用。建议组员独立评阅再讨论分歧；本项目未伪造组员评分。
 
 ## 失败分析与提交
 
-RESULTS.md 自动列出实际失败记录；docs/FAILURE_ANALYSIS.md 解释代表样本的原因与改进方向。新增检索方案的变化必须同时观察正确回答和无答案问题，不能只报告更高的召回率。修改模型、阈值、分块或 Prompt 后，应另存新目录、比较相同样本并重新评阅，不覆盖旧证据。参考 FAISS 官方文档 https://github.com/facebookresearch/faiss/wiki/Getting-started 与模型卡 https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 。
+RESULTS.md 自动列出实际失败记录；docs/analysis/FAILURE_ANALYSIS.md 解释代表样本的原因与改进方向。新增检索方案的变化必须同时观察正确回答和无答案问题，不能只报告更高的召回率。修改模型、阈值、分块或 Prompt 后，应另存新目录、比较相同样本并重新评阅，不覆盖旧证据。参考 FAISS 官方文档 https://github.com/facebookresearch/faiss/wiki/Getting-started 与模型卡 https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 。

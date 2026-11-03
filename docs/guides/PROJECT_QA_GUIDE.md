@@ -229,19 +229,19 @@ Prompt 用于约束大模型如何使用检索资料，例如只依据资料回�
 
 ## 五、进一步阅读
 
-- [系统设计文档](SYSTEM_DESIGN.md)：架构、数据流程、核心算法、接口与验证记录。
-- [架构摘要](ARCHITECTURE.md)：模块职责、检索路径和运行边界。
+- [系统设计文档](../design/SYSTEM_DESIGN.md)：架构、数据流程、核心算法、接口与验证记录。
+- [架构摘要](../design/ARCHITECTURE.md)：模块职责、检索路径和运行边界。
 - [业务操作手册](BUSINESS_OPERATIONS.md)：文件导入、QA 审核、人工补充和 Prompt 调整。
-- [项目说明](README.md)：启动方式、使用流程和实现范围。
+- [项目说明](../../README.md)：启动方式、使用流程和实现范围。
 
 ## 2026-11-03：课程 RAG 链路补充
-新增语义模块、索引表、回答模式、接口、实验数据流与一致性策略详见 [RAG 完整链路补充设计](docs/RAG_IMPLEMENTATION.md)。本章与该补充设计优先解释新增功能；前文字符向量与 FAQ 章节仍描述保留的基线路径。
+新增语义模块、索引表、回答模式、接口、实验数据流与一致性策略详见 [RAG 完整链路补充设计](../design/RAG_IMPLEMENTATION.md)。本章与该补充设计优先解释新增功能；前文字符向量与 FAQ 章节仍描述保留的基线路径。
 
 新增 `semantic_vectors(chunk_id, identity, content_hash, vector, dimension)`，按模型空间隔离并随片段级联删除；持久化归一化 float32 向量，按产品和版本构建内存 FAISS IndexFlatIP。索引按需增量补建，模型推理放在会话写事务之前。该索引是精确搜索，未引入 ANN 或常驻向量服务。
 
 新增 GET /api/rag/status 与 POST /api/rag/reindex。问答结果新增 retriever、generation_mode、generation_error。严格模型模式绕过 FAQ 快捷回答，服务异常不伪装成生成成功；自动模式保留原兼容路径。
 
-完整实验使用 6 份虚构文档、45 个问题，在独立临时库中比较相同语料的 hash_extractive 与 semantic_extractive。真实结果与图表位于 reports/latest，当前分别通过 33/45 与 38/45；新增语义方案存在拒答退化，见 [实际失败分析](docs/FAILURE_ANALYSIS.md)。关键词匹配、证据命中与人工忠实度/相关性分开统计。人评尚未完成时留空，不用检索分数替代。
+完整实验使用 6 份虚构文档、45 个问题，在独立临时库中比较相同语料的 hash_extractive 与 semantic_extractive。真实结果与图表位于 reports/latest，当前分别通过 33/45 与 38/45；新增语义方案存在拒答退化，见 [实际失败分析](../analysis/FAILURE_ANALYSIS.md)。关键词匹配、证据命中与人工忠实度/相关性分开统计。人评尚未完成时留空，不用检索分数替代。
 
 真实 LLM 实验入口已经实现，实际质量结果需配置用户指定服务后运行。GraphRAG、微调、在线逐事实校验、生产鉴权和正式人工工单服务未实现，也不是本次基础课程闭环的前置条件。
 
@@ -249,6 +249,6 @@ Prompt 用于约束大模型如何使用检索资料，例如只依据资料回�
 
 知识配置页已新增服务商与模型下拉框，默认预选 OpenRouter 免费路由；另有 Groq Free Plan、Gemini 免费层及自定义兼容 API。填入自己的 Key 后保存并测试，无需改源码或重启。额度以账户和官方政策为准，不自动切换收费模型。
 
-配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
+配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。scripts/benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
 
-完整操作、限制与官方链接见 [免费 API 配置说明](docs/FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。
+完整操作、限制与官方链接见 [免费 API 配置说明](FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。

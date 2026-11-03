@@ -47,7 +47,7 @@ flowchart TB
 | FAQ 生成 | `app/faq.py` | 提取显式问答，根据明确事实、章节及主题条目构造问法，答案来自资料。 |
 | 检索计算 | NumPy、scikit-learn | 无需拟合的哈希向量，点积与字符覆盖率混合评分。 |
 | 持久化 | SQLite | 单文件部署，保存关系数据与 `float32` 向量 BLOB。 |
-| 评估 | `evaluate.py`、`app/evaluation_worker.py` | 固定样例回归、状态混淆矩阵、来源命中率。 |
+| 评估 | `scripts/evaluate.py`、`app/evaluation_worker.py` | 固定样例回归、状态混淆矩阵、来源命中率。 |
 | 启动 | `run_server.py`、平台启动脚本 | 本地环境准备与启动；服务选择 8000～8010 范围内可用端口。 |
 
 关键设计取舍：单体与 SQLite 降低演示部署成本；产品和版本先过滤，减少串答；FAQ 优先提供稳定答案；保留来源和清洗报告支持核对；可选模型失败后回退原文，使离线环境也能完成问答。
@@ -435,7 +435,7 @@ FAQ 分为五类：`explicit`（显式问答）、`rule`（事实规则）、`au
 
 ### 6.1 向量配置与入库
 
-位置：[app/core.py](app/core.py)，`VECTORIZER`、`prepare_document()`、`add_document()`。
+位置：[app/core.py](../../app/core.py)，`VECTORIZER`、`prepare_document()`、`add_document()`。
 
 ```python
 VECTORIZER = HashingVectorizer(analyzer='char', ngram_range=(2, 4), n_features=4096,
@@ -450,7 +450,7 @@ vectors = VECTORIZER.transform(
 
 ### 6.2 范围过滤与混合评分
 
-位置：[app/core.py](app/core.py)，`retrieve()`。
+位置：[app/core.py](../../app/core.py)，`retrieve()`。
 
 ```python
 rows = db.execute('SELECT * FROM chunks WHERE product_id=? AND version=?',
@@ -469,7 +469,7 @@ score = 0.7 * semantic + 0.3 * overlap
 
 ### 6.3 FAQ 门槛与冲突判定
 
-位置：[app/core.py](app/core.py)，`match_faq()`。
+位置：[app/core.py](../../app/core.py)，`match_faq()`。
 
 ```python
 if score >= 0.38 and coverage >= 0.25:
@@ -487,7 +487,7 @@ conflict = len({item['answer'].strip() for item in same_question}) > 1
 
 ### 6.4 FAQ 整理的来源检查
 
-位置：[app/core.py](app/core.py)，`bootstrap_faqs()`。
+位置：[app/core.py](../../app/core.py)，`bootstrap_faqs()`。
 
 ```python
 answer_lines = [line.strip() for line in faq['answer'].splitlines() if line.strip()]
@@ -501,7 +501,7 @@ if not key or not answer_lines or any(
 
 ### 6.5 可选模型与离线回退
 
-位置：[app/core.py](app/core.py)，`ask()`、`llm_answer()`。
+位置：[app/core.py](../../app/core.py)，`ask()`、`llm_answer()`。
 
 ```python
 try:
@@ -515,7 +515,7 @@ answer = generated or sources[0]['text']
 
 ### 6.6 反馈唯一性与评估隔离
 
-位置：[app/main.py](app/main.py)，`feedback()`、`evaluation()`。
+位置：[app/main.py](../../app/main.py)，`feedback()`、`evaluation()`。
 
 反馈先校验目标消息属于指定会话、角色为助手且状态为 `answered`，然后使用 `ON CONFLICT(message_id) DO UPDATE` 更新当前评价。
 
@@ -523,7 +523,7 @@ answer = generated or sources[0]['text']
 
 ### 6.7 清洗预览与审核后入库
 
-位置：[app/main.py](app/main.py)，`preview_document()`、`document_request()`；[app/core.py](app/core.py)，`prepare_document()`、`add_document()`。
+位置：[app/main.py](../../app/main.py)，`preview_document()`、`document_request()`；[app/core.py](../../app/core.py)，`prepare_document()`、`add_document()`。
 
 ```python
 # 预览：解析、清洗、候选 QA 和检索片段，尚不写入数据库。
@@ -621,11 +621,11 @@ API 自动文档入口为 `/docs`。常见业务输入错误返回 HTTP 400；�
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python seed.py --if-empty
+python -m scripts.seed --if-empty
 python run_server.py
 ```
 
-Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。启动器将服务绑定到 `127.0.0.1`，以终端实际打印地址为准。`seed.py --if-empty` 仅在数据库没有资料时导入演示数据；直接执行 `seed.py` 会重建演示资料，应按用途选择。
+Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。启动器将服务绑定到 `127.0.0.1`，以终端实际打印地址为准。`scripts/seed.py --if-empty` 仅在数据库没有资料时导入演示数据；直接执行 `scripts/seed.py` 会重建演示资料，应按用途选择。
 
 ### 8.1 Windows 多版本 Python 启动
 
@@ -635,7 +635,7 @@ Windows 可使用 `start_windows.bat`，macOS 可使用 `start_mac.command`。�
 2. 未准备成功时，通过 `py -0p`、用户及系统注册表、常见目录和 PATH 收集并按解释器实际路径去重。启动器版本候选优先顺序为 3.11、3.12、3.13、3.14、3.10、3.9，其他识别到的版本也可继续尝试。
 3. 逐个创建虚拟环境，必要时运行 `ensurepip`，升级到兼容该 Python 的 pip，安装 `requirements.txt`；检查依赖和 `app.core` 导入，再执行 `pip check`。失败记录原因并继续尝试下一解释器。
 4. 已有候选都不可用且未尝试过 3.11 时，如有 `winget`，尝试为当前用户安装 Python 3.11，再重新识别候选。
-5. 环境可用后输出实际 Python 版本与路径，执行 `seed.py --if-empty`，然后启动本机服务。
+5. 环境可用后输出实际 Python 版本与路径，执行 `scripts/seed.py --if-empty`，然后启动本机服务。
 
 Python 探测命令使用 Python 单引号字符串，避免 Windows PowerShell 5.1 原生命令参数丢失嵌入双引号的问题。`start_windows.bat --setup-only` 仅准备环境和初始化空库，不启动服务；直接双击仍正常启动。脚本失败返回非零退出码，交互场景暂停以便查看错误，CI 环境不暂停。
 
@@ -662,7 +662,7 @@ Python 探测命令使用 Python 单引号字符串，避免 Windows PowerShell 
 固定样例脚本运行方式：
 
 ```bash
-.venv/bin/python evaluate.py
+.venv/bin/python -m scripts.evaluate
 ```
 
 本次同步文档时于 2026-10-09 实际运行该命令，8 个样例全部通过，退出码为 0：
@@ -682,7 +682,7 @@ Python 探测命令使用 Python 单引号字符串，避免 Windows PowerShell 
 
 ### 9.2 指标口径
 
-- `evaluate.py` 使用临时新库和演示资料；状态准确率比较预期状态，回答匹配率检查预期字符串是否出现在答案中。对非回答案例，答案和来源判定复用状态判断，因此三个比率不能等同于独立的语义正确率指标。
+- `scripts/evaluate.py` 使用临时新库和演示资料；状态准确率比较预期状态，回答匹配率检查预期字符串是否出现在答案中。对非回答案例，答案和来源判定复用状态判断，因此三个比率不能等同于独立的语义正确率指标。
 - 网页评估使用当前知识库的副本，不重新导入演示资料；如果已删除或替换固定样例对应知识，指标可能降低。
 - 网页 `Hit@k` 对带 `expected_source` 的样例调用片段检索，检查前 `k` 条是否包含预期文件来源；`k` 为 1、3、5。这不是对最终生成答案做正确性评分。
 - 混淆矩阵按预期状态和实际状态计数；不在 `answered/no_answer/handoff` 中的状态合并为 `other`。
@@ -707,28 +707,28 @@ Python 探测命令使用 Python 单引号字符串，避免 Windows PowerShell 
 
 | 主题 | 文件 / 核心入口 |
 | --- | --- |
-| 网页交互与图表 | [app/static/index.html](app/static/index.html)：`showPage`、`setStep`、`configProducts`、`send`、`answerBubble`、`loadEvaluation`。 |
-| API 和请求类 | [app/main.py](app/main.py)：`AskInput`、`preview_document`、`document_request`、`upload_document`、`ask`、`feedback`、`evaluation`。 |
-| 数据库与导入 | [app/core.py](app/core.py)：`connect`、`init_db`、`parse_document`、`prepare_document`、`split_text`、`add_document`。 |
-| 检索与会话 | [app/core.py](app/core.py)：`retrieve`、`match_faq`、`detect_product`、`ask`。 |
-| 知识维护与模型 | [app/core.py](app/core.py)：`bootstrap_faqs`、`supplement_gap`、`handoff`、`llm_answer`。 |
-| 文本处理 | [app/cleaning.py](app/cleaning.py)、[app/html_extract.py](app/html_extract.py)。 |
-| FAQ 生成规则 | [app/faq.py](app/faq.py)：`extract_faqs`、`extract_training_faqs`。 |
-| 模型行为约束 | [prompts/answer.txt](prompts/answer.txt)。 |
-| 固定评估 | [evaluate.py](evaluate.py)、[app/evaluation_worker.py](app/evaluation_worker.py)、[data/eval_cases.json](data/eval_cases.json)。 |
-| 部署入口 | [run_server.py](run_server.py)、[start_windows.bat](start_windows.bat)、[bootstrap_windows.ps1](bootstrap_windows.ps1)、[README.md](README.md)。 |
-| Windows 验证 | [.github/workflows/windows-startup.yml](.github/workflows/windows-startup.yml)、[tests/windows_bootstrap_checks.ps1](tests/windows_bootstrap_checks.ps1)。 |
+| 网页交互与图表 | [app/static/index.html](../../app/static/index.html)：`showPage`、`setStep`、`configProducts`、`send`、`answerBubble`、`loadEvaluation`。 |
+| API 和请求类 | [app/main.py](../../app/main.py)：`AskInput`、`preview_document`、`document_request`、`upload_document`、`ask`、`feedback`、`evaluation`。 |
+| 数据库与导入 | [app/core.py](../../app/core.py)：`connect`、`init_db`、`parse_document`、`prepare_document`、`split_text`、`add_document`。 |
+| 检索与会话 | [app/core.py](../../app/core.py)：`retrieve`、`match_faq`、`detect_product`、`ask`。 |
+| 知识维护与模型 | [app/core.py](../../app/core.py)：`bootstrap_faqs`、`supplement_gap`、`handoff`、`llm_answer`。 |
+| 文本处理 | [app/cleaning.py](../../app/cleaning.py)、[app/html_extract.py](../../app/html_extract.py)。 |
+| FAQ 生成规则 | [app/faq.py](../../app/faq.py)：`extract_faqs`、`extract_training_faqs`。 |
+| 模型行为约束 | [prompts/answer.txt](../../prompts/answer.txt)。 |
+| 固定评估 | [scripts/evaluate.py](../../scripts/evaluate.py)、[app/evaluation_worker.py](../../app/evaluation_worker.py)、[data/eval_cases.json](../../data/eval_cases.json)。 |
+| 部署入口 | [run_server.py](../../run_server.py)、[start_windows.bat](../../start_windows.bat)、[scripts/bootstrap_windows.ps1](../../scripts/bootstrap_windows.ps1)、[README.md](../../README.md)。 |
+| Windows 验证 | [.github/workflows/windows-startup.yml](../../.github/workflows/windows-startup.yml)、[tests/windows_bootstrap_checks.ps1](../../tests/windows_bootstrap_checks.ps1)。 |
 
-本文集中描述当前实现；已有 [ARCHITECTURE.md](ARCHITECTURE.md) 与 [BUSINESS_OPERATIONS.md](BUSINESS_OPERATIONS.md) 可作为架构摘要和操作流程的补充阅读。
+本文集中描述当前实现；已有 [docs/design/ARCHITECTURE.md](ARCHITECTURE.md) 与 [docs/guides/BUSINESS_OPERATIONS.md](../guides/BUSINESS_OPERATIONS.md) 可作为架构摘要和操作流程的补充阅读。
 
 ## 2026-11-03：课程 RAG 链路补充
-新增语义模块、索引表、回答模式、接口、实验数据流与一致性策略详见 [RAG 完整链路补充设计](docs/RAG_IMPLEMENTATION.md)。本章与该补充设计优先解释新增功能；前文字符向量与 FAQ 章节仍描述保留的基线路径。
+新增语义模块、索引表、回答模式、接口、实验数据流与一致性策略详见 [RAG 完整链路补充设计](RAG_IMPLEMENTATION.md)。本章与该补充设计优先解释新增功能；前文字符向量与 FAQ 章节仍描述保留的基线路径。
 
 新增 `semantic_vectors(chunk_id, identity, content_hash, vector, dimension)`，按模型空间隔离并随片段级联删除；持久化归一化 float32 向量，按产品和版本构建内存 FAISS IndexFlatIP。索引按需增量补建，模型推理放在会话写事务之前。该索引是精确搜索，未引入 ANN 或常驻向量服务。
 
 新增 GET /api/rag/status 与 POST /api/rag/reindex。问答结果新增 retriever、generation_mode、generation_error。严格模型模式绕过 FAQ 快捷回答，服务异常不伪装成生成成功；自动模式保留原兼容路径。
 
-完整实验使用 6 份虚构文档、45 个问题，在独立临时库中比较相同语料的 hash_extractive 与 semantic_extractive。真实结果与图表位于 reports/latest，当前分别通过 33/45 与 38/45；新增语义方案存在拒答退化，见 [实际失败分析](docs/FAILURE_ANALYSIS.md)。关键词匹配、证据命中与人工忠实度/相关性分开统计。人评尚未完成时留空，不用检索分数替代。
+完整实验使用 6 份虚构文档、45 个问题，在独立临时库中比较相同语料的 hash_extractive 与 semantic_extractive。真实结果与图表位于 reports/latest，当前分别通过 33/45 与 38/45；新增语义方案存在拒答退化，见 [实际失败分析](../analysis/FAILURE_ANALYSIS.md)。关键词匹配、证据命中与人工忠实度/相关性分开统计。人评尚未完成时留空，不用检索分数替代。
 
 真实 LLM 实验入口已经实现，实际质量结果需配置用户指定服务后运行。GraphRAG、微调、在线逐事实校验、生产鉴权和正式人工工单服务未实现，也不是本次基础课程闭环的前置条件。
 
@@ -736,6 +736,6 @@ Python 探测命令使用 Python 单引号字符串，避免 Windows PowerShell 
 
 知识配置页已新增服务商与模型下拉框，默认预选 OpenRouter 免费路由；另有 Groq Free Plan、Gemini 免费层及自定义兼容 API。填入自己的 Key 后保存并测试，无需改源码或重启。额度以账户和官方政策为准，不自动切换收费模型。
 
-配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
+配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。scripts/benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
 
-完整操作、限制与官方链接见 [免费 API 配置说明](docs/FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。
+完整操作、限制与官方链接见 [免费 API 配置说明](../guides/FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。

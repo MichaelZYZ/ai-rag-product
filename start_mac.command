@@ -100,7 +100,7 @@ fi
 "$venv_python" -m pip check
 
 echo '[4/5] Preparing the database without replacing saved data...'
-"$venv_python" seed.py --if-empty
+"$venv_python" -m scripts.seed --if-empty
 
 if [ "${1:-}" = '--setup-only' ]; then
   echo 'Environment is ready. Run ./start_mac.command to start the server.'

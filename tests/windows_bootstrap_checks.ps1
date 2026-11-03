@@ -7,7 +7,7 @@ Set-Location -LiteralPath $projectRoot
 $tokens = $null
 $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
-    (Join-Path $projectRoot 'bootstrap_windows.ps1'), [ref]$tokens, [ref]$parseErrors)
+    (Join-Path $projectRoot 'scripts/bootstrap_windows.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }
 foreach ($statement in $ast.EndBlock.Statements) {
     if ($statement -is [System.Management.Automation.Language.FunctionDefinitionAst]) {

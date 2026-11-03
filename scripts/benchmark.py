@@ -30,7 +30,7 @@ def write_report(report, output):
                     'actual_status': row['actual_status'], 'actual_answer': row['actual_answer'],
                     'evidence': json.dumps(row['sources'], ensure_ascii=False),
                     'generation_mode': row['generation_mode']})
-    lines = ['# 实验结果', '', '本文件由 benchmark.py 根据实际运行结果生成。关键词匹配不等同于忠实度。', '',
+    lines = ['# 实验结果', '', '本文件由 scripts/benchmark.py 根据实际运行结果生成。关键词匹配不等同于忠实度。', '',
              '| 方案 | 通过/总数 | 状态准确率 | 答案关键词准确率 | Hit@1（证据片段） | LLM 回答数 |',
              '| --- | --- | --- | --- | --- | --- |']
     for run, r in report['runs'].items():

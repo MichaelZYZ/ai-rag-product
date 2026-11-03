@@ -124,19 +124,19 @@ Prompt 不影响已存 FAQ 的答案，也不影响未接入模型时页面的�
 
 ## 十、数据保留与交接
 
-日常启动使用启动脚本即可。**不要把手动执行 `python seed.py` 当作启动步骤**，因为它会重建演示资料。跨电脑迁移时，先停止两台电脑上的服务，将旧电脑的 `data/rag.sqlite3` 复制到新电脑项目相同位置后再启动；若设置了 `RAG_DB` 环境变量，则以该变量指定的路径为准。数据库包含已上传资料、聊天记录、人工问答及自定义 Prompt，应按业务数据要求保管。
+日常启动使用启动脚本即可。**不要把手动执行 `python -m scripts.seed` 当作启动步骤**，因为它会重建演示资料。跨电脑迁移时，先停止两台电脑上的服务，将旧电脑的 `data/rag.sqlite3` 复制到新电脑项目相同位置后再启动；若设置了 `RAG_DB` 环境变量，则以该变量指定的路径为准。数据库包含已上传资料、聊天记录、人工问答及自定义 Prompt，应按业务数据要求保管。
 
-更多实现细节见 [README](README.md) 和 [项目架构](ARCHITECTURE.md)。
+更多实现细节见 [README](../../README.md) 和 [项目架构](../design/ARCHITECTURE.md)。
 
 ## 2026-11-03：课程 RAG 链路补充
 ### 1. 选择运行方式
 
-原有双击启动默认保留字符检索和自动回答。要展示完整语义 RAG，请先在项目目录激活虚拟环境，安装 `python -m pip install -r requirements-rag.txt`。macOS/Linux 在同一终端执行下面命令：
+原有双击启动默认保留字符检索和自动回答。要展示完整语义 RAG，请先在项目目录激活虚拟环境，安装 `python -m pip install -r requirements/rag.txt`。macOS/Linux 在同一终端执行下面命令：
 
 ```bash
 export RAG_RETRIEVER=semantic
 export RAG_ANSWER_MODE=extractive
-python reindex.py
+python -m scripts.reindex
 python run_server.py
 ```
 
@@ -145,7 +145,7 @@ Windows PowerShell 使用对应虚拟环境解释器；环境设置方式如下�
 ```powershell
 $env:RAG_RETRIEVER = 'semantic'
 $env:RAG_ANSWER_MODE = 'extractive'
-.\.venv\Scripts\python.exe reindex.py
+.\.venv\Scripts\python.exe -m scripts.reindex
 .\.venv\Scripts\python.exe run_server.py
 ```
 
@@ -161,24 +161,24 @@ $env:RAG_ANSWER_MODE = 'extractive'
 
 上传与原来的三步审核流程相同。导入成功代表原文和基线片段已保存；在配置页点击“补建语义向量索引”，看到当前模型已索引片段数与总数一致后再演示。首次语义问答也会补建，但会较慢。更换 Embedding 模型后重新补建，系统保留模型隔离，不复用旧空间向量。删除文档会级联删除关联向量。
 
-需要课堂校园样例时运行 `python seed.py --course`。这些规则是虚构语料，不能用于真实校园办事；该命令重建同名演示来源，其他来源保留。正常双击启动只保留原演示初始化逻辑，不自动添加新语料。
+需要课堂校园样例时运行 `python -m scripts.seed --course`。这些规则是虚构语料，不能用于真实校园办事；该命令重建同名演示来源，其他来源保留。正常双击启动只保留原演示初始化逻辑，不自动添加新语料。
 
 ### 4. 效果检查与失败分析
 
-页面“查看效果评估”仍运行 8 题离线快速回归，不代表真实模型质量。完整 45 题检索对比运行 `python benchmark.py`。真实生成对比需先配置服务，再运行 `python benchmark.py --with-llm --output reports/llm-run`。查看输出目录的 RESULTS.md 和 benchmark.json；失败项也保留，不能从报告里删除。
+页面“查看效果评估”仍运行 8 题离线快速回归，不代表真实模型质量。完整 45 题检索对比运行 `python -m scripts.benchmark`。真实生成对比需先配置服务，再运行 `python -m scripts.benchmark --with-llm --output reports/llm-run`。查看输出目录的 RESULTS.md 和 benchmark.json；失败项也保留，不能从报告里删除。
 
-用电子表格打开 human_review.csv，只对成功回答填写 faithfulness、answer_relevance、reviewer、reason。两项分数均为 0/1/2；评分标准见 docs/EVALUATION_GUIDE.md。不要修改 id、run、record_digest 或答案证据。保存为 UTF-8 CSV 后运行 `python review_results.py 输出目录`。未评分显示 null，不能当满分。检查 coverage，少量抽样不能冒充全量人评。
+用电子表格打开 human_review.csv，只对成功回答填写 faithfulness、answer_relevance、reviewer、reason。两项分数均为 0/1/2；评分标准见 docs/guides/EVALUATION_GUIDE.md。不要修改 id、run、record_digest 或答案证据。保存为 UTF-8 CSV 后运行 `python -m scripts.review_results 输出目录`。未评分显示 null，不能当满分。检查 coverage，少量抽样不能冒充全量人评。
 
 ### 5. 文档更新与交付
 
-安装 requirements-docs.txt 后运行 `python scripts/plot_results.py reports/latest` 生成图表；运行 `python scripts/build_deliverables.py` 同步 Word 补充与 PPT 技术草稿；运行 `python scripts/package_project.py` 生成 dist 下代码包。代码包不含实际运行数据库、缓存模型和真实密钥；目标机器需安装依赖并初始化资料。需要迁移已上传资料时单独备份数据库，不把运行数据混进课堂提交包。
+安装 requirements/docs.txt 后运行 `python -m scripts.plot_results reports/latest` 生成图表；运行 `python -m scripts.build_deliverables` 同步 Word 补充与 PPT 技术草稿；运行 `python -m scripts.package_project` 生成 dist 下代码包。代码包不含实际运行数据库、缓存模型和真实密钥；目标机器需安装依赖并初始化资料。需要迁移已上传资料时单独备份数据库，不把运行数据混进课堂提交包。
 
-教师报告中的真实模型结果、人工评分、成员分工、每人贡献和互评仍须根据实际情况填写，参见 docs/SUBMISSION_CHECKLIST.md。不要直接把生成的技术素材当作已完成个人评审的最终报告。
+教师报告中的真实模型结果、人工评分、成员分工、每人贡献和互评仍须根据实际情况填写，参见 docs/course/SUBMISSION_CHECKLIST.md。不要直接把生成的技术素材当作已完成个人评审的最终报告。
 
 ## 免费 API 下拉配置（2026-11-03）
 
 知识配置页已新增服务商与模型下拉框，默认预选 OpenRouter 免费路由；另有 Groq Free Plan、Gemini 免费层及自定义兼容 API。填入自己的 Key 后保存并测试，无需改源码或重启。额度以账户和官方政策为准，不自动切换收费模型。
 
-配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
+配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。scripts/benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
 
-完整操作、限制与官方链接见 [免费 API 配置说明](docs/FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。
+完整操作、限制与官方链接见 [免费 API 配置说明](FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。

@@ -140,14 +140,14 @@ class LLMConfigTests(unittest.TestCase):
             self.assertNotIn(b'never-package', b''.join(archive.read(n) for n in archive.namelist()))
 
     def test_benchmark_uses_saved_provider_without_exporting_key(self):
-        import benchmark
+        from scripts import benchmark
         self.save()
         output = Path(self.temp.name) / 'benchmark'
         def respond(request, timeout):
             self.assertEqual(request.get_header('Authorization'), 'Bearer secret-openrouter')
             self.assertEqual(json.loads(request.data)['model'], 'openrouter/free')
             return io.BytesIO(json.dumps({'choices': [{'message': {'content': '受控测试回答。[1]'}}]}).encode())
-        with patch.object(sys, 'argv', ['benchmark.py', '--retrievers', 'hash', '--with-llm', '--output', str(output)]), \
+        with patch.object(sys, 'argv', ['scripts/benchmark.py', '--retrievers', 'hash', '--with-llm', '--output', str(output)]), \
                 patch('urllib.request.urlopen', side_effect=respond):
             benchmark.main()
         report = json.loads((output / 'benchmark.json').read_text())

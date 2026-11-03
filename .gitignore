@@ -8,3 +8,5 @@ data/*.sqlite3-*
 dist/
 data/*.llm.json
 data/.llm-*.tmp
+.DS_Store
+~$*

@@ -23,7 +23,7 @@ flowchart LR
     R --> X[关键词与证据指标、人工质量评分、失败分析]
 ```
 
-app/semantic.py 封装本地 SentenceTransformer 与兼容 /embeddings 的 API。app/core.py 根据 RAG_RETRIEVER 选择字符或语义检索，根据 RAG_ANSWER_MODE 决定 FAQ 快捷回答、抽取式回答或严格模型生成。reindex.py 提供管理员命令行建索引。benchmark.py 与 app/experiments.py 在独立临时库中运行固定实验；review_results.py 汇总带证据的人工评分。scripts/plot_results.py 从实际 JSON 生成 PNG/PDF，scripts/build_deliverables.py 生成可编辑 Word、PPT 和不含运行数据库的代码包。
+app/semantic.py 封装本地 SentenceTransformer 与兼容 /embeddings 的 API。app/core.py 根据 RAG_RETRIEVER 选择字符或语义检索，根据 RAG_ANSWER_MODE 决定 FAQ 快捷回答、抽取式回答或严格模型生成。scripts/reindex.py 提供管理员命令行建索引。scripts/benchmark.py 与 app/experiments.py 在独立临时库中运行固定实验；scripts/review_results.py 汇总带证据的人工评分。scripts/plot_results.py 从实际 JSON 生成 PNG/PDF，scripts/build_deliverables.py 生成可编辑 Word、PPT 和不含运行数据库的代码包。
 
 ## 语义向量与 FAISS
 
@@ -68,4 +68,4 @@ benchmark.json 保存 UTC 运行时间、Python 版本、模型名称、题目�
 
 ## 免费服务配置扩展
 
-app/llm_config.py 提供 OpenRouter、Groq、Gemini 与自定义兼容服务预设。默认仅预选免费路由，不附共享 Key。网页配置与按服务商隔离的密钥原子写入数据库旁 *.llm.json，优先于环境变量；配置查询不回传密钥。POST /api/llm/test 发固定短句，脱敏处理 401/403/404/429 等错误。严格问答模式保留模型错误提示，不误显示为资料不足。完整接口与操作见 docs/FREE_API_SETUP.md。
+app/llm_config.py 提供 OpenRouter、Groq、Gemini 与自定义兼容服务预设。默认仅预选免费路由，不附共享 Key。网页配置与按服务商隔离的密钥原子写入数据库旁 *.llm.json，优先于环境变量；配置查询不回传密钥。POST /api/llm/test 发固定短句，脱敏处理 401/403/404/429 等错误。严格问答模式保留模型错误提示，不误显示为资料不足。完整接口与操作见 docs/guides/FREE_API_SETUP.md。

@@ -245,7 +245,7 @@ try {
     $selected = Get-PythonInfo -Executable $venvPython
     Write-Host "Environment ready with Python $($selected.version): $($selected.path)"
     Write-Host '[4/5] Preparing the database without replacing saved data...'
-    Invoke-Checked -Executable $venvPython -Arguments @('seed.py', '--if-empty') -Step 'Database initialization'
+    Invoke-Checked -Executable $venvPython -Arguments @('-m', 'scripts.seed', '--if-empty') -Step 'Database initialization'
 
     if ($SetupOnly) {
         Write-Host '[5/5] Setup complete; server startup was skipped.'

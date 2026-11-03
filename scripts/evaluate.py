@@ -6,12 +6,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory() as temp:
     os.environ['RAG_DB'] = str(Path(temp) / 'eval.sqlite3')
     os.environ.pop('LLM_BASE_URL', None)
     os.environ['RAG_LLM_DISABLED'] = '1'
-    subprocess.run([sys.executable, str(ROOT / 'seed.py')], check=True,
+    subprocess.run([sys.executable, '-m', 'scripts.seed'], check=True, cwd=ROOT,
                    env=os.environ, stdout=subprocess.DEVNULL)
     from app.core import ask
     cases = json.loads((ROOT / 'data' / 'eval_cases.json').read_text(encoding='utf-8'))

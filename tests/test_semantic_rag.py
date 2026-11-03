@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import numpy as np
 from app import core, semantic, experiments
-from review_results import aggregate
+from scripts.review_results import aggregate
 from fastapi.testclient import TestClient
 from app.main import app
 

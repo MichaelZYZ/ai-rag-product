@@ -15,7 +15,7 @@ class SeedPreserveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             db_path = Path(temp) / 'rag.sqlite3'
             env = {**os.environ, 'RAG_DB': str(db_path)}
-            command = [sys.executable, 'seed.py', '--if-empty']
+            command = [sys.executable, '-m', 'scripts.seed', '--if-empty']
             first = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
             self.assertEqual(first.returncode, 0, first.stderr)
             with sqlite3.connect(db_path) as db:

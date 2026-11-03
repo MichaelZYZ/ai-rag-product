@@ -12,7 +12,7 @@ from pptx.dml.color import RGBColor
 from pptx.util import Inches, Pt as PptPt
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = ROOT / 'docs'
+DOCS = ROOT / 'docs/exports'
 MARKER = '2026-11-03 RAG 链路与课程评估补充'
 
 
@@ -109,7 +109,7 @@ def append_existing(path, report):
             body.remove(element)
     document.add_heading(MARKER, level=1)
     document.add_paragraph('本章更新前文的实现范围描述。早期“没有语义向量/索引”等陈述仅适用于保留的字符基线。原系统图与历史实验记录保留，新增链路以本章为准。')
-    for source in ['docs/RAG_IMPLEMENTATION.md', 'docs/EVALUATION_GUIDE.md', 'docs/FAILURE_ANALYSIS.md', 'docs/FREE_API_SETUP.md']:
+    for source in ['docs/design/RAG_IMPLEMENTATION.md', 'docs/guides/EVALUATION_GUIDE.md', 'docs/analysis/FAILURE_ANALYSIS.md', 'docs/guides/FREE_API_SETUP.md']:
         markdown(document, (ROOT / source).read_text(encoding='utf-8'))
     add_result(document, report)
     document.save(path)
@@ -168,13 +168,13 @@ def slides(report):
 
 def main():
     report = json.loads((ROOT / 'reports/latest/benchmark.json').read_text(encoding='utf-8'))
-    DOCS.mkdir(exist_ok=True)
-    new_doc('项目说明文档.docx', '领域问答系统项目说明', ['README.md', 'docs/FREE_API_SETUP.md'], report, True)
-    new_doc('业务操作手册.docx', '产品与校园知识库问答操作手册', ['BUSINESS_OPERATIONS.md', 'docs/EVALUATION_GUIDE.md', 'docs/FREE_API_SETUP.md'], report)
-    new_doc('项目设计文档.docx', 'RAG 项目设计与实现', ['SYSTEM_DESIGN.md', 'docs/RAG_IMPLEMENTATION.md', 'docs/FREE_API_SETUP.md'], report, True)
+    DOCS.mkdir(parents=True, exist_ok=True)
+    new_doc('项目说明文档.docx', '领域问答系统项目说明', ['README.md', 'docs/guides/PROJECT_OVERVIEW.md', 'docs/guides/FREE_API_SETUP.md'], report, True)
+    new_doc('业务操作手册.docx', '产品与校园知识库问答操作手册', ['docs/guides/BUSINESS_OPERATIONS.md', 'docs/guides/EVALUATION_GUIDE.md', 'docs/guides/FREE_API_SETUP.md'], report)
+    new_doc('项目设计文档.docx', 'RAG 项目设计与实现', ['docs/design/SYSTEM_DESIGN.md', 'docs/design/RAG_IMPLEMENTATION.md', 'docs/guides/FREE_API_SETUP.md'], report, True)
     new_doc('课程报告补充材料.docx', '课程报告技术材料（待团队核对改写）',
-            ['docs/RAG_IMPLEMENTATION.md', 'docs/EVALUATION_GUIDE.md', 'docs/FAILURE_ANALYSIS.md', 'docs/SUBMISSION_CHECKLIST.md'], report, True)
-    for name in ['product_qa_robot_design.docx', '产品知识库问答系统_架构与核心实现设计文档.docx']:
+            ['docs/design/RAG_IMPLEMENTATION.md', 'docs/guides/EVALUATION_GUIDE.md', 'docs/analysis/FAILURE_ANALYSIS.md', 'docs/course/SUBMISSION_CHECKLIST.md'], report, True)
+    for name in ['docs/design/product_qa_robot_design.docx', 'docs/design/产品知识库问答系统_架构与核心实现设计文档.docx']:
         append_existing(ROOT / name, report)
     slides(report)
     print('已生成 4 份 Word、1 份 PPT，并补充现有两份设计 Word。')
