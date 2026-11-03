@@ -91,8 +91,25 @@ dialog.evaluation{width:min(1100px,calc(100vw - 32px));max-width:none;max-height
 </div>
 <div id="completeStep" hidden><h3>资料已入库</h3><p id="importResult"></p><p class="hint">可以返回问答测试实际问法，通过反馈和效果评估检查准确度。</p><div class="row"><button id="testImported" type="button">测试问答</button><button id="nextImport" type="button" class="secondary">继续导入</button></div></div>
 <details><summary>目标产品已有资料</summary><ul id="configDocs"></ul></details>
-</section><section class="card prompt-card"><details id="promptDetails" open><summary>模型 Prompt 配置</summary>
-<p class="hint">用于模型根据检索片段生成回答。FAQ 直接返回已存答案，不经过模型。</p>
+</section><section class="card prompt-card"><details open><summary>检索与生成状态</summary>
+<p id="ragStatus" class="hint">正在读取配置…</p>
+<button id="reindexSemantic" class="secondary" type="button">补建语义向量索引</button>
+<p id="ragIndexResult" class="hint" aria-live="polite">本地模型首次运行需要下载；已建索引可复用。</p>
+</details></section><section class="card prompt-card"><details open><summary>免费 API 与模型选择</summary>
+<label for="llmProvider">服务商</label><select id="llmProvider"><option>正在加载…</option></select>
+<label for="llmModel">模型</label><select id="llmModel"></select>
+<div id="llmCustomFields" hidden>
+<label for="llmBaseUrl">Base URL</label><input id="llmBaseUrl" type="url" placeholder="https://服务地址/v1" autocomplete="off">
+<label for="llmCustomModel">自定义模型名</label><input id="llmCustomModel" maxlength="200" placeholder="模型 ID">
+</div>
+<p class="hint"><span id="llmProviderNote"></span> <a id="llmKeyLink" target="_blank" rel="noopener noreferrer">获取 API Key ↗</a></p>
+<label for="llmApiKey">API Key（保存在本机，不回显）</label><input id="llmApiKey" type="password" maxlength="4096" autocomplete="new-password" placeholder="填入该服务商的 Key；留空保留已保存的 Key">
+<label for="llmAnswerMode">回答方式</label><select id="llmAnswerMode"><option value="llm">模型生成（失败时明确提示）</option><option value="auto">自动（优先 FAQ，模型不可用回退原文）</option><option value="extractive">仅返回资料原文</option></select>
+<div class="prompt-actions"><button id="saveLLM" type="button">保存配置</button><button id="testLLM" type="button" class="secondary">保存并测试连接</button></div>
+<button id="resetLLM" type="button" class="secondary" style="width:100%;margin-top:8px">清除本机配置与密钥</button>
+<p id="llmConfigStatus" class="hint" aria-live="polite">默认选择 OpenRouter 免费路由。需自备服务商 API Key；保存后生效。连接测试只发送一条简短测试消息。</p>
+</details></section><section class="card prompt-card"><details id="promptDetails" open><summary>模型 Prompt 配置</summary>
+<p class="hint">用于模型根据检索片段生成回答。自动模式命中 FAQ 时直接返回已存答案；严格模型模式会经过检索生成。</p>
 <label for="promptBody">系统提示词</label><textarea id="promptBody" class="prompt-editor" maxlength="10000" spellcheck="false" placeholder="正在加载默认 Prompt…"></textarea>
 <div class="prompt-actions"><button id="savePrompt" type="button">保存配置</button><button id="resetPrompt" type="button" class="secondary">恢复默认</button></div>
 <p id="promptStatus" class="hint" aria-live="polite"></p>
@@ -143,6 +160,7 @@ function answerBubble(result){
   trigger.setAttribute('aria-controls',panel.id);
   const sources=Array.isArray(result.sources)?result.sources:[];
   panel.append(node('strong','知识库来源与相关度'));
+  if(result.generation_mode){const labels={faq:'知识库问答',extractive:'资料原文',llm:'模型生成',rule:'规则处理',error:'模型服务不可用'};panel.append(node('div','回答方式：'+(labels[result.generation_mode]||result.generation_mode)))}
   if(sources.length){
     for(const source of sources){
       const item=node('div','', 'citation-source');
@@ -473,6 +491,43 @@ $('commitImport').onclick=async()=>{
 };
 $('nextImport').onclick=()=>{completedImport=null;$('file').value='';setStep(1);flowMessage('选择下一份资料生成预览。')};
 $('testImported').onclick=()=>{if(!completedImport)return;selectProduct(completedImport.product_id);$('version').value=completedImport.version;sessionId=null;$('currentScope').textContent=scopeLabel();loadFaqSuggestions();location.hash='chat'};
+async function loadRagStatus(){try{const r=await api('/api/rag/status');$('ragStatus').textContent=`检索：${r.retriever==='semantic'?'语义向量 + FAISS':'字符检索基线'}；回答模式：${r.answer_mode}；模型服务：${r.llm_configured?'已配置（需实际调用验证）':'未配置'}。当前模型已索引 ${r.indexed_chunks}/${r.chunks} 个片段。`;}catch(e){$('ragStatus').textContent='状态读取失败：'+e.message}}
+let llmProviders=[],savedLLMConfig=null;
+function renderLLMProvider(providerId,modelId=''){
+  const provider=llmProviders.find(p=>p.id===providerId);if(!provider)return;
+  $('llmModel').replaceChildren();
+  for(const model of provider.models){const option=node('option',model.name);option.value=model.id;$('llmModel').append(option)}
+  if(modelId&&provider.models.some(m=>m.id===modelId))$('llmModel').value=modelId;
+  const custom=provider.id==='custom';$('llmCustomFields').hidden=!custom;$('llmModel').hidden=custom;
+  document.querySelector('label[for="llmModel"]').hidden=custom;
+  $('llmProviderNote').textContent=provider.note;
+  $('llmKeyLink').hidden=!provider.key_url;if(provider.key_url)$('llmKeyLink').href=provider.key_url;
+}
+async function loadLLMConfig(){
+  try{const c=await api('/api/llm/config');savedLLMConfig=c;llmProviders=c.providers;$('llmProvider').replaceChildren();
+    for(const p of llmProviders){const option=node('option',p.name);option.value=p.id;$('llmProvider').append(option)}
+    $('llmProvider').value=c.provider_id;renderLLMProvider(c.provider_id,c.model);
+    $('llmBaseUrl').value=c.base_url;$('llmCustomModel').value=c.model;$('llmApiKey').value='';
+    $('llmAnswerMode').value=c.source==='default'?'llm':c.answer_mode;
+    $('llmConfigStatus').textContent=c.configured?'已配置模型服务，可测试连接；密钥不会回显。':'已预选免费方案，填入该服务商的 API Key 后保存即可使用。';
+  }catch(e){$('llmConfigStatus').textContent='读取配置失败：'+e.message}
+}
+$('llmProvider').onchange=()=>{renderLLMProvider($('llmProvider').value);$('llmApiKey').value='';$('llmConfigStatus').textContent='选择尚未生效，请填写该服务商的密钥并保存；留空只复用该服务商以前保存的密钥。';};
+function setLLMBusy(busy){for(const id of ['saveLLM','testLLM','resetLLM','llmProvider','llmModel','llmBaseUrl','llmCustomModel','llmApiKey','llmAnswerMode'])$(id).disabled=busy}
+async function saveLLM(test=false){
+  setLLMBusy(true);$('llmConfigStatus').textContent=test?'正在保存并测试连接…':'正在保存配置…';
+  try{const custom=$('llmProvider').value==='custom';const payload={provider_id:$('llmProvider').value,model:custom?$('llmCustomModel').value:$('llmModel').value,base_url:custom?$('llmBaseUrl').value:'',api_key:$('llmApiKey').value||null,answer_mode:$('llmAnswerMode').value};
+    const c=await api('/api/llm/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});savedLLMConfig=c;$('llmApiKey').value='';
+    $('llmConfigStatus').textContent=c.configured?'已保存，后续回答使用当前选择的服务和模式。':'已保存服务选择，但尚缺 API Key。';
+    await loadRagStatus();await loadPrompt();
+    if(test){const result=await api('/api/llm/test',{method:'POST'});$('llmConfigStatus').textContent=result.message+' 实际响应模型：'+result.model;}
+  }catch(e){$('llmConfigStatus').textContent=(test?'连接测试未完成：':'保存失败：')+e.message}finally{setLLMBusy(false)}
+}
+$('saveLLM').onclick=()=>saveLLM(false);$('testLLM').onclick=()=>saveLLM(true);
+$('resetLLM').onclick=async()=>{setLLMBusy(true);try{await api('/api/llm/config',{method:'DELETE'});await loadLLMConfig();await loadRagStatus();await loadPrompt();$('llmConfigStatus').textContent='本机保存的服务配置和密钥已清除；如启动环境中有模型配置，则恢复使用环境变量。';}catch(e){$('llmConfigStatus').textContent='清除失败：'+e.message}finally{setLLMBusy(false)}};
+$('reindexSemantic').onclick=async()=>{const b=$('reindexSemantic');b.disabled=true;$('ragIndexResult').textContent='正在构建索引，首次下载可能需要几分钟…';try{const r=await api('/api/rag/reindex',{method:'POST'});$('ragIndexResult').textContent=`共 ${r.chunks} 个片段，本次新增向量 ${r.embedded} 个。`;await loadRagStatus()}catch(e){$('ragIndexResult').textContent=e.message}finally{b.disabled=false}};
+loadRagStatus();
+loadLLMConfig();
 showPage();setStep(1);configProducts().catch(e=>flowMessage('配置加载失败：'+e.message,true));
 products().then(featured).then(refresh).catch(e=>{$('productChooserTitle').textContent='产品列表加载失败，请刷新页面后重试。';$('conversation').append(node('div',e.message,'error'))});
 </script>

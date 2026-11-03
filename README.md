@@ -1,6 +1,6 @@
 # 产品说明智能问答机器人（课堂演示）
 
-根据两份设计文档实现的可运行 MVP。内置的“星云笔记”和“轨道任务”完全是**虚构演示产品**；评估结果只说明这组小样例的表现，不代表生产效果。
+根据设计文档实现的可运行问答系统，包含字符基线与可选语义 RAG。内置的“星云笔记”和“轨道任务”完全是**虚构演示产品**；评估结果只说明这组小样例的表现，不代表生产效果。
 
 项目模块、数据流和数据库设计见 [架构文档](ARCHITECTURE.md)；操作人员的上手流程见 [业务操作手册](BUSINESS_OPERATIONS.md)。
 
@@ -64,14 +64,14 @@ Windows 可在项目目录运行 `start_windows.bat --setup-only`，仅准备环
 
 ## 设计与边界
 
-- `app/core.py`：文档解析、按事实行切片、4096 维字符 n-gram HashingVectorizer、SQLite 中保存向量、产品和版本过滤、余弦检索与字符重叠重排、会话编排与转人工。字符向量是**离线检索基线**，不是预训练语义 Embedding；生产部署可换成语义模型和专用向量库。
+- `app/core.py`：文档解析、按事实行切片、4096 维字符 n-gram HashingVectorizer、SQLite 中保存向量、产品和版本过滤、余弦检索与字符重叠重排、会话编排与转人工。字符向量是**离线检索基线**，不是预训练语义 Embedding；新增语义模型与 FAISS 路径见文末补充；生产部署仍需扩展性能与权限。
 - `app/main.py`：FastAPI 接口。`app/static/index.html`：问答、导入和看板页面。
 - 热门产品只统计已有资料的产品，按用户提问次数排序，最多展示 6 个；完全没有咨询记录时展示所有已有知识库的产品。“换产品”始终列出所有已有知识库的产品。产品搜索会匹配名称、别名及知识片段，并把相似结果作为候选交给用户选择。匹配不足时提示联系人工，不自动把相似产品当成目标产品。
 - `data/demo_knowledge.json`：虚构语料；`data/eval_cases.json`、`evaluate.py`：测试问题、期望状态、答案关键字和来源命中率。
 - `prompts/answer.txt`：可选 LLM 的默认系统提示词。页面“模型 Prompt 配置”可保存覆盖内容到 SQLite，调用模型时立即读取；恢复默认后重新使用文件内容。设置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 后调用兼容 Chat Completions 的接口；未设置时直接返回命中原文。FAQ 直接使用已存答案，页面中的固定话术由 `app/core.py` 的 `conversational_answer` 控制，不受该 Prompt 影响。不要把真实密钥提交或打包。
-- 检索阈值 0.16 仅为演示样例的起点。上线前应扩大测试集、标注正确证据，校准阈值并补充冲突检测。扫描版 PDF 没有 OCR。网页、Excel、鉴权、限流和人工工单系统集成不在此 MVP 中。
+- 检索阈值 0.16 仅为演示样例的起点。上线前应扩大测试集、标注正确证据，校准阈值并补充冲突检测。扫描版 PDF 没有 OCR。URL 抓取、Excel、鉴权、限流和人工工单系统集成不在此 MVP 中。
 
-数据默认保存在项目目录的 `data/rag.sqlite3`，也可由 `RAG_DB` 环境变量指定路径。该文件被 `.gitignore` 排除，Git 拉取或复制不含数据库的代码到另一台机器时，不会带上已上传资料、聊天记录、人工问答和自定义 Prompt。需要迁移时，先停止原机器和目标机器的服务，将原机器的 `data/rag.sqlite3` 复制到目标项目的 `data/rag.sqlite3`，再启动目标机器；若设置了 `RAG_DB`，应复制到该变量指向的位置。启动终端打印的“当前数据库”路径可用于核对是否读到了目标文件。手动执行 `python seed.py` 会重建演示资料；双击启动脚本只会在空库时导入演示数据。删除数据库文件可重置。演示服务默认无鉴权，请仅在本机运行。
+数据默认保存在项目目录的 `data/rag.sqlite3`，也可由 `RAG_DB` 环境变量指定路径。新增数据库文件由 `.gitignore` 排除；历史仓库曾跟踪该文件，忽略规则不会自动移除已跟踪文件。提交打包脚本会明确排除所有 SQLite 运行数据。复制不含数据库的代码到另一台机器时，不会带上已上传资料、聊天记录、人工问答和自定义 Prompt。需要迁移时，先停止原机器和目标机器的服务，将原机器的 `data/rag.sqlite3` 复制到目标项目的 `data/rag.sqlite3`，再启动目标机器；若设置了 `RAG_DB`，应复制到该变量指向的位置。启动终端打印的“当前数据库”路径可用于核对是否读到了目标文件。手动执行 `python seed.py` 会重建演示资料；双击启动脚本只会在空库时导入演示数据。删除数据库文件可重置。演示服务默认无鉴权，请仅在本机运行。
 
 ## 失败案例与改进方向
 
@@ -79,3 +79,50 @@ Windows 可在项目目录运行 `start_windows.bat --setup-only`，仅准备环
 - “支持导出 Word 吗？”与“导出 PDF”语义接近，纯字符检索可能误命中；演示版对问题中的英文格式名做显式核对。更多参数和否定表达仍需结构化抽取与证据校验。
 - 多轮追问只拼接上一轮问题；较长会话和复杂指代可能改写错误。生产方案应使用专门的指代消解并评估改写质量。
 - 可选 LLM 的输出依赖提示词约束，尚未实现逐句忠实度验证，因此不能将小样例的命中率解释为生成忠实度。
+
+## 2026-11-03：课程 RAG 链路补充
+本次保留字符检索基线，新增本地/API 语义 Embedding、FAISS 精确索引、严格模型模式和 45 题可复现实验。默认启动仍为 hash + auto；需要语义检索时安装可选依赖并设置环境变量。
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements-rag.txt
+python seed.py --course
+export RAG_RETRIEVER=semantic
+export RAG_ANSWER_MODE=extractive
+python reindex.py
+python run_server.py
+```
+
+`seed.py --course` 会重建演示产品及虚构校园语料中同产品、版本、来源的资料，保留其他来源。请勿将自行修改过的同名演示文档当正式资料使用。正常启动不会自动添加校园样例。
+
+模型缓存默认位于 `.cache/huggingface`，可通过 HF_HOME 覆盖。首次下载需要网络，缓存后可使用 `HF_HUB_OFFLINE=1`。配置页面新增检索/生成状态与补建语义索引按钮。原文入库后语义向量按需补建；旧数据库无需重传资料即可运行 `reindex.py`。
+
+真实生成可在“知识配置 → 免费 API 与模型选择”中保存服务与 Key，或配置 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL，并设置 `RAG_ANSWER_MODE=llm`。Base URL 后追加 `/chat/completions`；完整配置不代表服务已验证。模型缺失/失败时严格模式返回失败状态，不伪装成模型回答。自动模式 `auto` 保留 FAQ 优先和原文回退；`extractive` 绕过 FAQ 快捷回答并返回 Top-1 原文。FAQ 冲突与敏感业务仍转人工。`.env.example` 仅为参考，应用支持网页配置和进程环境，不自动加载该文件。
+
+语义 Embedding 默认为本地多语言模型；需 API Embedding 时设 `EMBEDDING_PROVIDER=api`，并分别设置 EMBEDDING_BASE_URL、EMBEDDING_API_KEY、EMBEDDING_MODEL。向量服务和生成服务可独立配置。`RAG_MIN_SCORE` 可覆盖阈值，但必须在独立开发集上校准，不能把相似度当置信概率。
+
+```bash
+python benchmark.py
+python benchmark.py --with-llm --output reports/llm-run
+python review_results.py reports/latest
+python -m pip install -r requirements-docs.txt
+python scripts/plot_results.py reports/latest
+python scripts/build_deliverables.py
+python scripts/package_project.py
+```
+
+第二条命令只应在服务配置完整且获准发送教学语料后运行。实验使用临时数据库，不污染正式咨询记录；未执行的方案明确列在 skipped 中。新增依赖在本次 macOS 环境验证，Windows 扩展依赖兼容性尚未实测，原基础启动检查保持不变。
+
+当前真实离线结果：45 题中字符基线通过 33 题，语义方案通过 38 题；证据 Hit@1 分别为 80.56% 和 91.67%，无答案题拒答准确率分别为 87.50% 和 50.00%。语义召回改善同时出现错误接受，不能据此宣称已解决幻觉。真实 LLM 结果与人工忠实度/相关性评分尚待服务配置及评阅，未用推测数据填充。
+
+新增文件：`app/semantic.py`（语义向量/FAISS）、`reindex.py`（增量索引）、`benchmark.py` 和 `app/experiments.py`（完整实验）、`review_results.py`（人评汇总）、`data/course_knowledge.json`（虚构校园资料）、`data/eval_extended.json`（45 题）、`reports/latest/`（实际结果）、`docs/`（设计、评估、失败分析和提交核对）、`scripts/`（图表、Word/PPT 和打包工具）。
+
+详细设计见 [RAG 补充设计](docs/RAG_IMPLEMENTATION.md)，操作见 [业务手册](BUSINESS_OPERATIONS.md)，评估见 [复现与人评说明](docs/EVALUATION_GUIDE.md)，实际失败见 [失败案例分析](docs/FAILURE_ANALYSIS.md)。代码包排除数据库、密钥环境文件和模型缓存；迁移正式知识库仍需另行备份原数据库。
+
+## 免费 API 下拉配置（2026-11-03）
+
+知识配置页已新增服务商与模型下拉框，默认预选 OpenRouter 免费路由；另有 Groq Free Plan、Gemini 免费层及自定义兼容 API。填入自己的 Key 后保存并测试，无需改源码或重启。额度以账户和官方政策为准，不自动切换收费模型。
+
+配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
+
+完整操作、限制与官方链接见 [免费 API 配置说明](docs/FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。

@@ -1,0 +1,561 @@
+[
+  {
+    "question": "星云笔记最多支持多少个标签？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "answered",
+    "expected_source": "nova_notes_v2.md",
+    "id": "original_01",
+    "category": "基础问答",
+    "expected_terms": [
+      "20 个标签"
+    ],
+    "expected_evidence": "20 个标签"
+  },
+  {
+    "question": "星云笔记最多支持多少个标签？",
+    "product_id": "nova_notes",
+    "version": "1.0",
+    "expected_status": "answered",
+    "expected_source": "nova_notes_v1.md",
+    "id": "original_02",
+    "category": "基础问答",
+    "expected_terms": [
+      "10 个标签"
+    ],
+    "expected_evidence": "10 个标签"
+  },
+  {
+    "question": "星云笔记附件大小限制是多少？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "answered",
+    "expected_source": "nova_notes_v2.md",
+    "id": "original_03",
+    "category": "基础问答",
+    "expected_terms": [
+      "25 MB"
+    ],
+    "expected_evidence": "25 MB"
+  },
+  {
+    "question": "轨道任务最多支持多少个任务？",
+    "product_id": "orbit_tasks",
+    "version": "1.0",
+    "expected_status": "answered",
+    "expected_source": "orbit_tasks_v1.md",
+    "id": "original_04",
+    "category": "基础问答",
+    "expected_terms": [
+      "50 个任务"
+    ],
+    "expected_evidence": "50 个任务"
+  },
+  {
+    "question": "星云笔记支持语音转写吗？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "no_answer",
+    "id": "original_05",
+    "category": "无答案或转人工",
+    "expected_terms": []
+  },
+  {
+    "question": "星云笔记价格是多少？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "no_answer",
+    "id": "original_06",
+    "category": "无答案或转人工",
+    "expected_terms": []
+  },
+  {
+    "question": "星云笔记支持导出 Word 吗？",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "no_answer",
+    "id": "original_07",
+    "category": "无答案或转人工",
+    "expected_terms": []
+  },
+  {
+    "question": "我要退款",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "expected_status": "handoff",
+    "id": "original_08",
+    "category": "无答案或转人工",
+    "expected_terms": []
+  },
+  {
+    "id": "extended_01",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "category": "标签同义",
+    "question": "一篇笔记能打几个标签？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "20 个标签"
+    ],
+    "expected_source": "nova_notes_v2.md",
+    "expected_evidence": "20 个标签"
+  },
+  {
+    "id": "extended_02",
+    "product_id": "nova_notes",
+    "version": "1.0",
+    "category": "版本隔离",
+    "question": "旧版一篇笔记能打几个标签？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "10 个标签"
+    ],
+    "expected_source": "nova_notes_v1.md",
+    "expected_evidence": "10 个标签"
+  },
+  {
+    "id": "extended_03",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "category": "附件同义",
+    "question": "上传一个文件最多能有多大？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "25 MB"
+    ],
+    "expected_source": "nova_notes_v2.md",
+    "expected_evidence": "25 MB"
+  },
+  {
+    "id": "extended_04",
+    "product_id": "nova_notes",
+    "version": "1.0",
+    "category": "版本隔离",
+    "question": "附件上传的单文件上限是多少？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "10 MB"
+    ],
+    "expected_source": "nova_notes_v1.md",
+    "expected_evidence": "10 MB"
+  },
+  {
+    "id": "extended_05",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "category": "操作",
+    "question": "忘记密码应该如何重设？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "注册邮箱"
+    ],
+    "expected_source": "nova_notes_v2.md",
+    "expected_evidence": "注册邮箱"
+  },
+  {
+    "id": "extended_06",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "category": "操作",
+    "question": "如何将笔记导出为 PDF？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "导出",
+      "PDF"
+    ],
+    "expected_source": "nova_notes_v2.md",
+    "expected_evidence": "即可下载当前笔记"
+  },
+  {
+    "id": "extended_07",
+    "product_id": "nova_notes",
+    "version": "1.0",
+    "category": "否定",
+    "question": "1.0 版可以导出 PDF 吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不支持"
+    ],
+    "expected_source": "nova_notes_v1.md",
+    "expected_evidence": "不支持导出 PDF"
+  },
+  {
+    "id": "extended_08",
+    "product_id": "orbit_tasks",
+    "version": "1.0",
+    "category": "功能",
+    "question": "任务能设置到期时间吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "截止日期"
+    ],
+    "expected_source": "orbit_tasks_v1.md",
+    "expected_evidence": "截止日期"
+  },
+  {
+    "id": "extended_09",
+    "product_id": "orbit_tasks",
+    "version": "1.0",
+    "category": "操作",
+    "question": "邮件提醒从哪里开启？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "设置页"
+    ],
+    "expected_source": "orbit_tasks_v1.md",
+    "expected_evidence": "设置页开启邮件提醒"
+  },
+  {
+    "id": "extended_10",
+    "product_id": "orbit_tasks",
+    "version": "1.0",
+    "category": "否定",
+    "question": "轨道任务能导出 PDF 吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不支持"
+    ],
+    "expected_source": "orbit_tasks_v1.md",
+    "expected_evidence": "不支持导出 PDF"
+  },
+  {
+    "id": "extended_11",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "条件区分",
+    "question": "本科生同时能借几本书？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "8 本"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "本科生同时最多借阅 8 本图书"
+  },
+  {
+    "id": "extended_12",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "条件区分",
+    "question": "研究生同时能借几本书？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "12 本"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "研究生同时最多借阅 12 本图书"
+  },
+  {
+    "id": "extended_13",
+    "product_id": "campus_services",
+    "version": "2025",
+    "category": "版本隔离",
+    "question": "本科生在 2025 年可以借多少本？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "6 本"
+    ],
+    "expected_source": "campus_library_2025.md",
+    "expected_evidence": "本科生同时最多借阅 6 本图书"
+  },
+  {
+    "id": "extended_14",
+    "product_id": "campus_services",
+    "version": "2025",
+    "category": "版本隔离",
+    "question": "2025 年图书借期是多少？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "21 天"
+    ],
+    "expected_source": "campus_library_2025.md",
+    "expected_evidence": "普通图书借期为 21 天"
+  },
+  {
+    "id": "extended_15",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "参数",
+    "question": "普通图书可以借多久？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "30 天"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "普通图书借期为 30 天"
+  },
+  {
+    "id": "extended_16",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "否定",
+    "question": "参考工具书能带出图书馆吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不能外借"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "不能外借"
+  },
+  {
+    "id": "extended_17",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "操作",
+    "question": "怎么在网站上办理续借？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "我的借阅",
+      "续借"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "登录图书馆网站"
+  },
+  {
+    "id": "extended_18",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "否定",
+    "question": "别人预约的图书还能续借吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不能续借"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "已被他人预约的图书不能续借"
+  },
+  {
+    "id": "extended_19",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "参数",
+    "question": "一次续借延长多少天？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "15 天"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "每次延长 15 天"
+  },
+  {
+    "id": "extended_20",
+    "product_id": "campus_services",
+    "version": "2025",
+    "category": "版本隔离",
+    "question": "2025 年续借能延长几天？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "7 天"
+    ],
+    "expected_source": "campus_library_2025.md",
+    "expected_evidence": "每次延长 7 天"
+  },
+  {
+    "id": "extended_21",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "条件区分",
+    "question": "图书馆工作日几点开放？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "08:00",
+      "22:00"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "工作日开放时间为 08:00 至 22:00"
+  },
+  {
+    "id": "extended_22",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "条件区分",
+    "question": "图书馆周末几点开放？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "09:00",
+      "18:00"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "周末开放时间为 09:00 至 18:00"
+  },
+  {
+    "id": "extended_23",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "操作",
+    "question": "图书弄丢了怎么处理？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "服务台",
+      "挂失"
+    ],
+    "expected_source": "campus_library_2026.md",
+    "expected_evidence": "应先到服务台登记挂失"
+  },
+  {
+    "id": "extended_24",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "操作",
+    "question": "在读证明在哪里申请？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "学生服务平台",
+      "证明申请"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "选择“证明申请”"
+  },
+  {
+    "id": "extended_25",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "参数",
+    "question": "电子在读证明多久可以下载？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "2 个工作日"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "2 个工作日"
+  },
+  {
+    "id": "extended_26",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "参数",
+    "question": "纸质在读证明多少钱一份？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "5 元"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "纸质在读证明每份收费 5 元"
+  },
+  {
+    "id": "extended_27",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "参数",
+    "question": "电子在读证明收费吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不收费"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "电子在读证明不收费"
+  },
+  {
+    "id": "extended_28",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "操作",
+    "question": "纸质在读证明去哪里领取？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "行政楼 102 室"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "行政楼 102 室"
+  },
+  {
+    "id": "extended_29",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "否定",
+    "question": "纸质在读证明可以让朋友代领吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不能代领"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "不能代领"
+  },
+  {
+    "id": "extended_30",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "否定",
+    "question": "成绩单能提供日文版本吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "不提供日文"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "不提供日文版本"
+  },
+  {
+    "id": "extended_31",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "操作",
+    "question": "学籍信息错误可以自己改吗？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "教务办公室",
+      "不能自行修改"
+    ],
+    "expected_source": "campus_certificate_2026.md",
+    "expected_evidence": "不能自行修改"
+  },
+  {
+    "id": "unanswerable_01",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "category": "无答案",
+    "question": "支持实时多人协作编辑吗？",
+    "expected_status": "no_answer",
+    "expected_terms": []
+  },
+  {
+    "id": "unanswerable_02",
+    "product_id": "orbit_tasks",
+    "version": "1.0",
+    "category": "无答案",
+    "question": "可以上传多少 GB 的附件？",
+    "expected_status": "no_answer",
+    "expected_terms": []
+  },
+  {
+    "id": "unanswerable_03",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "无答案",
+    "question": "宿舍报修电话是多少？",
+    "expected_status": "no_answer",
+    "expected_terms": []
+  },
+  {
+    "id": "unanswerable_04",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "无答案",
+    "question": "考试周图书馆几点关门？",
+    "expected_status": "no_answer",
+    "expected_terms": []
+  },
+  {
+    "id": "unanswerable_05",
+    "product_id": "campus_services",
+    "version": "2026",
+    "category": "无答案",
+    "question": "证明可以邮寄到家吗？",
+    "expected_status": "no_answer",
+    "expected_terms": []
+  },
+  {
+    "id": "conversation_01",
+    "product_id": "nova_notes",
+    "version": "2.0",
+    "category": "多轮",
+    "history": [
+      "附件大小限制是多少？"
+    ],
+    "question": "那最多多少 MB？",
+    "expected_status": "answered",
+    "expected_terms": [
+      "25 MB"
+    ],
+    "expected_source": "nova_notes_v2.md",
+    "expected_evidence": "25 MB"
+  }
+]

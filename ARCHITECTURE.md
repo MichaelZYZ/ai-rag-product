@@ -15,7 +15,7 @@ flowchart LR
     C -. 已配置时 .-> L[兼容 Chat Completions 的 LLM 服务]
 ```
 
-这是单体应用，没有独立的向量数据库或训练服务。页面是原生 HTML、CSS 和 JavaScript；后端由 Uvicorn 承载 FastAPI；SQLite 同时保存业务记录、清洗后的原文和向量。默认数据库路径是 `data/rag.sqlite3`，可用 `RAG_DB` 环境变量覆盖。
+这是单体应用，支持字符检索基线与可选 FAISS 语义检索，没有独立训练服务。页面是原生 HTML、CSS 和 JavaScript；后端由 Uvicorn 承载 FastAPI；SQLite 同时保存业务记录、清洗后的原文和向量。默认数据库路径是 `data/rag.sqlite3`，可用 `RAG_DB` 环境变量覆盖。
 
 ## 2. 模块职责
 
@@ -61,7 +61,7 @@ flowchart TD
 
 人工补充走 `POST /api/faqs/manual`，或对知识缺口调用 `POST /api/gaps/{gap_id}/answer`。人工答案作为独立资料、片段和 FAQ 入库；填写知识缺口时会校验产品、版本和问题范围。若同一范围已有不同答案，接口会要求先核对资料。
 
-## 5. 问答决策流程
+## 5. 默认 auto 模式问答决策流程
 
 ```mermaid
 flowchart TD
@@ -125,6 +125,25 @@ FastAPI 自动接口文档位于 `/docs`。
 
 ## 8. 运行与边界
 
-本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：优先复用可用的 `.venv`，否则通过启动器、注册表、常见目录和 PATH 枚举 Python 3.9+ 并逐个尝试，升级兼容的 pip，校验依赖及应用模块导入；都不可用且未尝试过 3.11 时通过 `winget` 安装 Python 3.11。Python 探测代码避免嵌入双引号，兼容 PowerShell 5.1 原生命令传参；`start_windows.bat --setup-only` 仅准备环境、不启动服务。Python 3.9～3.14 的 Windows x64 依赖解析已通过；同版本 Windows 启动与测试矩阵见 `.github/workflows/windows-startup.yml`，本次 macOS 环境尚未执行该工作流。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。SQLite 文件被 Git 忽略，跨机器迁移需另行复制该文件，详见 README。
+本地运行可使用启动脚本，或安装 `requirements.txt` 后执行 `uvicorn app.main:app --reload`。Windows 的 `.bat` 入口调用 PowerShell 引导脚本：优先复用可用的 `.venv`，否则通过启动器、注册表、常见目录和 PATH 枚举 Python 3.9+ 并逐个尝试，升级兼容的 pip，校验依赖及应用模块导入；都不可用且未尝试过 3.11 时通过 `winget` 安装 Python 3.11。Python 探测代码避免嵌入双引号，兼容 PowerShell 5.1 原生命令传参；`start_windows.bat --setup-only` 仅准备环境、不启动服务。Python 3.9～3.14 的 Windows x64 依赖解析已通过；同版本 Windows 启动与测试矩阵见 `.github/workflows/windows-startup.yml`，本次 macOS 环境尚未执行该工作流。macOS 的 `.command` 入口执行相同的环境检查；缺少 Python 时通过 Homebrew 安装 Python 3.11，缺少 Homebrew 时先调用官方安装脚本。`run_server.py` 会在 `127.0.0.1` 的 8000 至 8010 端口中选择可用端口，并打印实际数据库路径。启动脚本只在数据库没有资料时调用 `seed.py --if-empty` 导入演示数据；手动执行 `seed.py` 会重建演示资料。新增 SQLite 文件被 Git 忽略，历史已跟踪文件需单独核对；提交包明确排除运行数据库，跨机器迁移需另行复制该文件，详见 README。
 
-当前实现面向课堂演示：没有管理员鉴权、权限隔离、限流或正式工单系统；SQLite 和内存中逐条比较向量适合小规模资料；字符 n-gram 并非语义 Embedding。可选 LLM 只用于片段回答，现有代码没有逐句忠实度校验。上线前需要补充权限和审核、检索质量评估、文档 OCR、冲突治理及运行监控。
+当前实现面向课堂演示：没有管理员鉴权、权限隔离、限流或正式工单系统；字符基线与新增 FAISS 精确检索均面向小规模资料，语义模式使用独立预训练 Embedding。可选 LLM 只用于片段回答，现有代码没有逐句忠实度校验。上线前需要补充权限和审核、检索质量评估、文档 OCR、冲突治理及运行监控。
+
+## 2026-11-03：课程 RAG 链路补充
+新增语义模块、索引表、回答模式、接口、实验数据流与一致性策略详见 [RAG 完整链路补充设计](docs/RAG_IMPLEMENTATION.md)。本章与该补充设计优先解释新增功能；前文字符向量与 FAQ 章节仍描述保留的基线路径。
+
+新增 `semantic_vectors(chunk_id, identity, content_hash, vector, dimension)`，按模型空间隔离并随片段级联删除；持久化归一化 float32 向量，按产品和版本构建内存 FAISS IndexFlatIP。索引按需增量补建，模型推理放在会话写事务之前。该索引是精确搜索，未引入 ANN 或常驻向量服务。
+
+新增 GET /api/rag/status 与 POST /api/rag/reindex。问答结果新增 retriever、generation_mode、generation_error。严格模型模式绕过 FAQ 快捷回答，服务异常不伪装成生成成功；自动模式保留原兼容路径。
+
+完整实验使用 6 份虚构文档、45 个问题，在独立临时库中比较相同语料的 hash_extractive 与 semantic_extractive。真实结果与图表位于 reports/latest，当前分别通过 33/45 与 38/45；新增语义方案存在拒答退化，见 [实际失败分析](docs/FAILURE_ANALYSIS.md)。关键词匹配、证据命中与人工忠实度/相关性分开统计。人评尚未完成时留空，不用检索分数替代。
+
+真实 LLM 实验入口已经实现，实际质量结果需配置用户指定服务后运行。GraphRAG、微调、在线逐事实校验、生产鉴权和正式人工工单服务未实现，也不是本次基础课程闭环的前置条件。
+
+## 免费 API 下拉配置（2026-11-03）
+
+知识配置页已新增服务商与模型下拉框，默认预选 OpenRouter 免费路由；另有 Groq Free Plan、Gemini 免费层及自定义兼容 API。填入自己的 Key 后保存并测试，无需改源码或重启。额度以账户和官方政策为准，不自动切换收费模型。
+
+配置由 app/llm_config.py 管理，密钥保存在数据库旁的 *.llm.json 本机文件，不写入 SQLite、不回显、不进入提交包。配置接口为 GET/PUT/DELETE /api/llm/config；POST /api/llm/test 仅发送固定测试短句。网页配置优先于环境变量；清除后恢复环境变量方式。benchmark.py --with-llm 可读取已保存服务，离线回归禁止远程调用。
+
+完整操作、限制与官方链接见 [免费 API 配置说明](docs/FREE_API_SETUP.md)。本次已完成协议与错误路径测试，真实平台连通性需要用户自备 Key 后验证。

@@ -13,6 +13,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from . import core
+from . import semantic
+from . import llm_config
 
 app = FastAPI(title='产品知识库问答演示', version='1.0')
 core.init_db()
@@ -44,9 +46,77 @@ class GapAnswerInput(BaseModel):
 class PromptInput(BaseModel):
     prompt: str
 
+class LLMConfigInput(BaseModel):
+    provider_id: str
+    model: str = Field(default='', max_length=200)
+    base_url: str = Field(default='', max_length=1000)
+    api_key: Optional[str] = Field(default=None, max_length=4096)
+    answer_mode: str = 'llm'
+
+@app.get('/api/llm/config')
+def get_llm_config():
+    return {'providers': llm_config.PROVIDERS, **llm_config.public_config(core.DB_PATH)}
+
+@app.put('/api/llm/config')
+def save_llm_config(data: LLMConfigInput):
+    try:
+        return llm_config.save(core.DB_PATH, provider_id=data.provider_id, model=data.model,
+                               base_url=data.base_url, api_key=data.api_key, answer_mode=data.answer_mode)
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+
+@app.delete('/api/llm/config')
+def reset_llm_config():
+    return llm_config.reset(core.DB_PATH)
+
+@app.post('/api/llm/test')
+def test_llm_config():
+    import urllib.error
+    import urllib.request
+    if not llm_config.enabled(core.DB_PATH):
+        raise HTTPException(400, '请先选择服务商并保存 API Key')
+    config = llm_config.effective(core.DB_PATH)
+    payload = json.dumps({'model': config['model'], 'temperature': 0, 'max_tokens': 64,
+                          'messages': [{'role': 'user', 'content': '请仅回复 OK。'}]}).encode()
+    request = urllib.request.Request(config['base_url'] + '/chat/completions', data=payload,
+            headers={'Authorization': 'Bearer ' + config['api_key'], 'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            result = json.load(response)
+        content = result['choices'][0]['message']['content']
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError('empty response')
+        return {'ok': True, 'model': str(result.get('model') or config['model']),
+                'message': '连接成功，模型已返回内容。'}
+    except Exception as error:
+        kind = 'HTTP' + str(error.code) if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+        raise HTTPException(503, llm_config.error_message(kind))
+
 @app.get('/')
 def home():
     return FileResponse(STATIC / 'index.html', headers={'Cache-Control': 'no-store'})
+
+@app.get('/api/rag/status')
+def rag_status():
+    import importlib.util
+    with core.connect() as db:
+        chunks = db.execute('SELECT count(*) FROM chunks').fetchone()[0]
+        indexed = db.execute('''SELECT count(*) FROM semantic_vectors s JOIN chunks c ON c.id=s.chunk_id
+                              WHERE identity=?''', (semantic.config()[3],)).fetchone()[0]
+    return {'retriever': os.getenv('RAG_RETRIEVER', 'hash'),
+            'answer_mode': llm_config.effective(core.DB_PATH)['answer_mode'],
+            'embedding_provider': semantic.config()[0], 'embedding_model': semantic.config()[1],
+            'faiss_available': importlib.util.find_spec('faiss') is not None,
+            'local_embedding_available': importlib.util.find_spec('sentence_transformers') is not None,
+            'chunks': chunks, 'indexed_chunks': indexed,
+            'llm_configured': core.answer_prompt_config()['model_enabled']}
+
+@app.post('/api/rag/reindex')
+def reindex():
+    try:
+        return semantic.index_chunks(core.connect)
+    except Exception as error:
+        raise HTTPException(503, '语义索引构建失败（' + type(error).__name__ + '），请检查依赖、模型和网络配置')
 
 @app.get('/api/products')
 def products():
@@ -156,6 +226,8 @@ def ask(data: AskInput):
         return core.ask(data.question, data.session_id, data.product_id, data.version)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except Exception as error:
+        raise HTTPException(503, '问答服务暂不可用（' + type(error).__name__ + '），请检查检索配置')
 
 @app.post('/api/feedback')
 def feedback(data: FeedbackInput):
@@ -245,6 +317,7 @@ def evaluation():
                 db.backup(target)
             environment = os.environ.copy()
             environment['RAG_DB'] = str(snapshot)
+            environment['RAG_LLM_DISABLED'] = '1'
             for key in ('LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'):
                 environment.pop(key, None)
             try:

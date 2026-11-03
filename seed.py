@@ -11,7 +11,10 @@ if '--if-empty' in sys.argv:
     if existing:
         print(f'已发现 {existing} 份资料，跳过演示数据导入：{core.DB_PATH.resolve()}')
         sys.exit(0)
-for item in json.loads((Path(__file__).parent / 'data' / 'demo_knowledge.json').read_text(encoding='utf-8')):
+items = json.loads((Path(__file__).parent / 'data' / 'demo_knowledge.json').read_text(encoding='utf-8'))
+if '--course' in sys.argv:
+    items += json.loads((Path(__file__).parent / 'data' / 'course_knowledge.json').read_text(encoding='utf-8'))
+for item in items:
     core.add_product(item['product_id'], item['product_name'], item['aliases'])
     with core.connect() as db:
         db.execute('DELETE FROM documents WHERE product_id=? AND version=? AND source=?',

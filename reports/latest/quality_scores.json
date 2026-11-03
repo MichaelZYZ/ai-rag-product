@@ -1,0 +1,16 @@
+{
+  "hash_extractive": {
+    "reviewed": 0,
+    "eligible_answers": 31,
+    "coverage": 0.0,
+    "faithfulness": null,
+    "answer_relevance": null
+  },
+  "semantic_extractive": {
+    "reviewed": 0,
+    "eligible_answers": 40,
+    "coverage": 0.0,
+    "faithfulness": null,
+    "answer_relevance": null
+  }
+}

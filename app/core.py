@@ -7,6 +7,7 @@ import re
 import sqlite3
 import time
 import urllib.request
+import urllib.error
 import uuid
 import zipfile
 from datetime import date
@@ -18,6 +19,8 @@ from sklearn.feature_extraction.text import HashingVectorizer
 from .cleaning import clean_document
 from .faq import ANSWER, QUESTION, extract_faqs, extract_training_faqs
 from .html_extract import extract_html_text
+from . import semantic
+from . import llm_config
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.getenv('RAG_DB', ROOT / 'data' / 'rag.sqlite3'))
@@ -91,6 +94,7 @@ def init_db():
             db.execute('ALTER TABLE feedback ADD COLUMN message_id INTEGER')
         db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_message ON feedback(message_id)')
         db.execute('CREATE INDEX IF NOT EXISTS idx_unanswered_open ON unanswered(resolved_at,product_id,version)')
+        semantic.ensure_schema(db)
 
 
 def now():
@@ -108,8 +112,7 @@ def answer_prompt_config():
     return {'prompt': row['value'] if row else default,
             'default_prompt': default,
             'source': 'custom' if row else 'default',
-            'model_enabled': all(os.getenv(name) for name in
-                                 ('LLM_BASE_URL', 'LLM_API_KEY', 'LLM_MODEL'))}
+            'model_enabled': llm_config.enabled(DB_PATH)}
 
 
 def save_answer_prompt(prompt):
@@ -473,6 +476,8 @@ def detect_product(question, explicit, prior):
 
 
 def retrieve(question, product_id, version, top_k=4):
+    if os.getenv('RAG_RETRIEVER', 'hash') == 'semantic':
+        return semantic.retrieve(connect, question, product_id, version, top_k)
     with connect() as db:
         rows = db.execute('SELECT * FROM chunks WHERE product_id=? AND version=?',
                           (product_id, version)).fetchall()
@@ -490,13 +495,13 @@ def retrieve(question, product_id, version, top_k=4):
     scored = []
     for row in rows:
         vec = np.frombuffer(row['vector'], dtype=np.float32)
-        semantic = float(np.dot(query_vec, vec))
+        cosine = float(np.dot(query_vec, vec))
         # Character overlap improves ranking of short Chinese parameter questions.
         a = set(clean[i:i+2] for i in range(len(clean)-1))
         body = row['text'].split('\n', 1)[-1]
         b = set(body[i:i+2] for i in range(len(body)-1))
         overlap = len(a & b) / max(1, len(a))
-        score = 0.7 * semantic + 0.3 * overlap
+        score = 0.7 * cosine + 0.3 * overlap
         scored.append({'chunk_id': row['id'], 'source': row['source'], 'category': row['category'],
                        'text': row['text'], 'score': round(score, 4)})
     return sorted(scored, key=lambda x: x['score'], reverse=True)[:top_k]
@@ -637,10 +642,9 @@ def match_faq(question, product_id, version):
 
 
 def llm_answer(question, sources):
-    endpoint = os.getenv('LLM_BASE_URL', '').rstrip('/')
-    key = os.getenv('LLM_API_KEY', '')
-    model = os.getenv('LLM_MODEL', '')
-    if not (endpoint and key and model):
+    config = llm_config.effective(DB_PATH)
+    endpoint, key, model = config['base_url'], config['api_key'], config['model']
+    if not llm_config.enabled(DB_PATH):
         return None
     prompt = answer_prompt_config()['prompt']
     context = '\n\n'.join(f"[{i+1}] {s['text']}" for i, s in enumerate(sources))
@@ -650,7 +654,7 @@ def llm_answer(question, sources):
     ]}).encode()
     request = urllib.request.Request(endpoint + '/chat/completions', data=payload,
                                      headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=45) as response:
         answer = json.load(response)['choices'][0]['message']['content'].strip()
     return answer
 
@@ -692,6 +696,17 @@ def ask(question, session_id=None, product_id=None, version=None):
     question = question.strip()
     if not question or len(question) > 1000:
         raise ValueError('问题长度需为 1–1000 字')
+    retriever = os.getenv('RAG_RETRIEVER', 'hash')
+    answer_mode = llm_config.effective(DB_PATH)['answer_mode']
+    if retriever not in ('hash', 'semantic') or answer_mode not in ('auto', 'extractive', 'llm'):
+        raise ValueError('RAG_RETRIEVER 应为 hash/semantic，RAG_ANSWER_MODE 应为 auto/extractive/llm')
+    minimum_score = float(os.getenv('RAG_MIN_SCORE', '0.35' if retriever == 'semantic' else '0.16'))
+    if not np.isfinite(minimum_score) or not 0 <= minimum_score <= 1:
+        raise ValueError('RAG_MIN_SCORE 必须为 0 到 1 的有限数值')
+    if retriever == 'semantic':
+        # Model calls and index writes must finish before the conversation write lock.
+        semantic.index_chunks(connect)
+    generation_mode, generation_error = 'rule', None
     session_id = session_id or uuid.uuid4().hex
     discovery = is_discovery_question(question)
     matched_products = search_products(question) if discovery else []
@@ -750,31 +765,43 @@ def ask(question, session_id=None, product_id=None, version=None):
             answer = '产品资料对这个问题给出了冲突答案，请联系人工客服确认。'
             ticket_id = handoff(db, session_id, question, product_id, version, '同一常见问题存在冲突答案')
             sources = []
-        elif faq:
+        elif faq and answer_mode == 'auto':
             status = 'answered'
             answer = faq['answer']
             sources = [faq['source']]
             top = faq['score']
-        elif top < 0.16 or (sources and any(term.lower() not in sources[0]['text'].lower() for term in re.findall(r'[A-Za-z]{3,}', question) if term.lower() not in ('nova', 'notes', 'orbit', 'tasks'))):
+            generation_mode = 'faq'
+        elif top < minimum_score or (sources and any(term.lower() not in sources[0]['text'].lower() for term in re.findall(r'[A-Za-z]{3,}', question) if term.lower() not in ('nova', 'notes', 'orbit', 'tasks'))):
             status = 'no_answer'
             answer = '现有产品资料中暂未找到相关说明，请补充问题或联系人工客服。'
             sources = []
         else:
             status = 'answered'
             try:
-                generated = llm_answer(rewritten, sources[:3])
-            except Exception:
+                generated = llm_answer(rewritten, sources[:3]) if answer_mode != 'extractive' else None
+            except Exception as error:
                 generated = None
+                generation_error = ('HTTP' + str(error.code) if isinstance(error, urllib.error.HTTPError)
+                                    else type(error).__name__)
             # Offline mode presents a verbatim retrieved passage, never invented facts.
             answer = generated or sources[0]['text']
+            generation_mode = 'llm' if generated else 'extractive'
+            if answer_mode == 'llm' and not generated:
+                status = 'no_answer'
+                generation_mode = 'error'
+                generation_error = generation_error or 'LLMNotConfiguredOrEmpty'
+                answer = llm_config.error_message(generation_error)
+            elif generated and '现有产品资料中暂未找到相关说明' in generated:
+                status = 'no_answer'
         if status in ('no_answer', 'no_product'):
             db.execute('INSERT INTO unanswered(session_id,question,product_id,version,created_at) VALUES(?,?,?,?,?)',
                        (session_id, question, product_id, version, now()))
         message_id = db.execute('INSERT INTO messages(session_id,role,text,status,created_at) VALUES(?,?,?,?,?)',
                                 (session_id, 'assistant', answer, status, now())).lastrowid
         product_name_row = db.execute('SELECT name FROM products WHERE id=?', (product_id,)).fetchone() if product_id else None
-        display_answer = conversational_answer(question, answer, status,
-                                               product_name_row['name'] if product_name_row else None, version)
+        display_answer = (answer if generation_mode == 'error' else
+                          conversational_answer(question, answer, status,
+                                               product_name_row['name'] if product_name_row else None, version))
         suggested_questions = []
         if status == 'answered' and product_name_row:
             current_key = faq_terms(question, product_name_row['name'])
@@ -798,4 +825,6 @@ def ask(question, session_id=None, product_id=None, version=None):
             'suggested_questions': suggested_questions, 'status': status,
             'confidence': round(top, 4), 'sources': sources[:3] if status == 'answered' else [],
             'matched_products': matched_products, 'handoff_id': ticket_id,
+            'retriever': retriever, 'generation_mode': generation_mode,
+            'generation_error': generation_error,
             'latency_ms': round((time.monotonic()-start)*1000)}
